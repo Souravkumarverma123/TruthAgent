@@ -1,6 +1,6 @@
 import { StepStatusIcon } from "@/components/step-status-icon";
 import { getResult } from "@/lib/engine/boundary.ts";
-import type { Evidence, Result, Tier, VerdictLabel } from "@/lib/engine/schemas.ts";
+import type { Evidence, ReasoningStep, Result, Tier, VerdictLabel } from "@/lib/engine/schemas.ts";
 import { isFactChecker, tierOf } from "@/lib/engine/sources.ts";
 
 const LABEL_TEXT: Record<VerdictLabel, string> = {
@@ -27,7 +27,8 @@ const DAY_FORMAT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "sh
 
 /** Saved Results last 30 days, so a proof page can be asked for one saved before a field
  * existed. What's there is shown; what isn't is worked out from the url or left out. */
-type StoredResult = Omit<Result, "evidence" | "independentSources" | "steps"> & {
+type StoredResult = Omit<Result, "verdict" | "evidence" | "independentSources" | "steps"> & {
+  verdict: Pick<Result["verdict"], "label" | "oneLine"> & Partial<Result["verdict"]>;
   evidence?: (Partial<Evidence> & { url: string; quote: string })[];
   independentSources?: number;
   steps?: Result["steps"];
@@ -62,6 +63,21 @@ function shownEvidence(stored: StoredResult["evidence"]): ShownEvidence[] {
   });
 }
 
+const TAG_TEXT: Record<ReasoningStep["tag"], string> = {
+  fact: "Fact",
+  inference: "Inference",
+  assumption: "Assumption",
+  hypothesis: "Hypothesis",
+};
+
+/** Which model decided, in words; null means code decided (no Independent source either way). */
+function decidedBy(verdict: StoredResult["verdict"], model: string | null): string {
+  if (model === null) return "Decided by rule: no Independent source either way.";
+  return verdict.escalated
+    ? `Decided by ${model}, the stronger model: the quick checks disagreed or weren't sure.`
+    : `Decided by ${model}.`;
+}
+
 function EvidenceColumn({ title, items }: { title: string; items: ShownEvidence[] }) {
   return (
     <section className="flex flex-col gap-3">
@@ -73,8 +89,11 @@ function EvidenceColumn({ title, items }: { title: string; items: ShownEvidence[
       ) : (
         <ul className="flex flex-col gap-3">
           {items.map((item) => (
-            <li key={item.id} className="rounded-lg border border-border p-3">
-              <p className="text-sm text-foreground">&ldquo;{item.quote}&rdquo;</p>
+            <li key={item.id} id={item.id} className="scroll-mt-4 rounded-lg border border-border p-3">
+              <p className="text-sm text-foreground">
+                <span className="mr-2 text-xs font-medium text-muted-foreground">{item.id}</span>
+                &ldquo;{item.quote}&rdquo;
+              </p>
               {!item.quoteVerified && (
                 <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">Quote not verified</p>
               )}
@@ -136,6 +155,46 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
         <h2 className="text-sm font-medium text-muted-foreground">Main claim</h2>
         <p className="mt-1 text-foreground">{result.mainClaim.original}</p>
       </section>
+
+      {/* Results saved before issue #7 have no reasoning, and their `model` wasn't the deciding one. */}
+      {result.verdict.reasoning && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-sm font-medium text-muted-foreground">Why</h2>
+          {result.verdict.reasoning.length > 0 && (
+            <ol className="flex flex-col gap-2">
+              {result.verdict.reasoning.map((step, i) => (
+                <li key={i} className="text-sm text-foreground">
+                  <span className="mr-2 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                    {TAG_TEXT[step.tag]}
+                  </span>
+                  {step.text}
+                  {step.evidenceIds.length > 0 && (
+                    <span className="text-muted-foreground">
+                      {" ("}
+                      {step.evidenceIds.map((evidenceId, j) => (
+                        <span key={evidenceId}>
+                          {j > 0 && ", "}
+                          <a href={`#${evidenceId}`} className="underline underline-offset-2">
+                            {evidenceId}
+                          </a>
+                        </span>
+                      ))}
+                      )
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+          {result.verdict.whatWouldChange && (
+            <p className="text-sm text-foreground">
+              <span className="font-medium">What would change this: </span>
+              {result.verdict.whatWouldChange}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">{decidedBy(result.verdict, result.model)}</p>
+        </section>
+      )}
 
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium text-muted-foreground">Evidence</h2>

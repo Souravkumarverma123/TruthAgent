@@ -226,3 +226,65 @@ test("replay: check() needs no OPENAI_API_KEY — proof no OpenAI client is ever
     if (saved !== undefined) process.env.OPENAI_API_KEY = saved;
   }
 });
+
+test("replay: the proof page's Verdict has tagged reasoning steps citing Evidence ids, what would change it, and the deciding model", async () => {
+  const events = await collect(BACHCHAN);
+  const result = await resultOf(events);
+  const ids = new Set(result.evidence.map((e) => e.id));
+
+  assert.ok(result.verdict.reasoning.length > 0);
+  for (const step of result.verdict.reasoning) {
+    assert.match(step.tag, /^(fact|inference|assumption|hypothesis)$/);
+    assert.ok(step.text.length > 0);
+    assert.ok(step.evidenceIds.every((id) => ids.has(id)));
+  }
+  assert.ok(result.verdict.reasoning.some((s) => s.evidenceIds.length > 0));
+  assert.ok(result.verdict.whatWouldChange.length > 0);
+  assert.equal(result.model, "gpt-6-luna");
+});
+
+test("replay: a reasoning step citing an unknown Evidence id is dropped", async () => {
+  const result = await resultOf(await collect(BACHCHAN));
+
+  // The recorded Verdict has a step citing E99, which this Check never found.
+  assert.ok(!result.verdict.reasoning.some((s) => /hospital statement/.test(s.text)));
+  assert.ok(result.verdict.reasoning.some((s) => /unsourced post/.test(s.text)), "valid steps are kept");
+});
+
+test("replay: an easy claim never escalates, and a Verdict decided by code names no model", async () => {
+  const easy = (await collect(BACHCHAN)).find((e) => e.type === "verdict");
+  assert.equal(easy?.type === "verdict" && easy.escalated, false);
+
+  const byCode = await collect(LAPTOP);
+  const verdict = byCode.find((e) => e.type === "verdict");
+  assert.equal(verdict?.type === "verdict" && verdict.escalated, false);
+  assert.equal((await resultOf(byCode)).model, null);
+});
+
+test("replay: two disagreeing luna Verdicts trigger one sol Verdict, and the verdict event says it escalated", async () => {
+  const events = await collect("RBI is banning ₹500 notes from 1 January, forward to all");
+  const verdict = events.find((e) => e.type === "verdict");
+
+  assert.equal(verdict?.type === "verdict" && verdict.escalated, true);
+  const result = await resultOf(events);
+  assert.equal(result.model, "gpt-6-sol");
+  assert.equal(result.verdict.label, "false");
+});
+
+const HOSPITAL = "Amitabh Bachchan admitted to hospital in critical condition, pray for him";
+
+test("replay: a top-label probability under 0.7 also escalates", async () => {
+  const events = await collect(HOSPITAL);
+  const verdict = events.find((e) => e.type === "verdict");
+
+  assert.equal(verdict?.type === "verdict" && verdict.escalated, true);
+  assert.equal((await resultOf(events)).model, "gpt-6-sol");
+});
+
+test("replay: when sol can't settle a Hard claim either, the Verdict is Not confirmed yet", async () => {
+  const events = await collect(HOSPITAL);
+  const verdict = events.find((e) => e.type === "verdict");
+
+  assert.equal(verdict?.type === "verdict" && verdict.label, "unconfirmed");
+  assert.equal((await resultOf(events)).verdict.label, "unconfirmed");
+});
