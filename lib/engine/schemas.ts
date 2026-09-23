@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { Confidence } from "./confidence.ts";
 
 /** "Text over 2,000 characters is rejected" (issue #3 acceptance criteria).
  * Lives here, not in check.ts, so the client-side input page (app/page.tsx)
@@ -93,6 +92,12 @@ export const VerdictSchema = z.object({
   what_would_change: z.string(),
 });
 export type VerdictOutput = z.infer<typeof VerdictSchema>;
+
+/** How strongly the Evidence backs a Verdict, worked out by code (confidence.ts). */
+export interface Confidence {
+  level: "high" | "medium" | "low";
+  reason: string;
+}
 
 /** One reasoning step on the proof page. */
 export interface ReasoningStep {

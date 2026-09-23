@@ -44,7 +44,7 @@ const HINDU = "https://www.thehindu.com/business/rbi-withdraws-2000-notes/articl
 const HINDU_LINE = "RBI on Friday announced the withdrawal of ₹2,000 notes from circulation, PTI reported.";
 
 /** The Hard claim scenarios: on the RBI claim the two luna runs disagree; on this one both are under
- * 70% sure, and so is sol. Their Evidence is one-sided, so they escalate for that reason alone. */
+ * 70% sure, and so is sol. Their Evidence is one-sided, so only the luna triggers escalate them. */
 const HOSPITAL_CLAIM = /hospital/i;
 /** And on this one, one luna run's probabilities don't add up. */
 const RETIRED_CLAIM = /retired/i;

@@ -1,8 +1,8 @@
 // Confidence (docs/architecture.md §5 ⑧): worked out by code from the Evidence, not the model's own
 // number. The weights and cut-offs are a first guess, tuned here and only here on the accuracy test set (#15).
-import type { Evidence, Tier, VerdictLabel } from "./schemas.ts";
+import type { Confidence, Evidence, Tier, VerdictLabel } from "./schemas.ts";
 
-export const CONFIDENCE = {
+const CONFIDENCE = {
   weights: { probability: 0.35, agreeing: 0.25, quality: 0.2, count: 0.2 },
   /** Score at or above which Confidence is High, else Medium, else Low. */
   high: 0.75,
@@ -12,21 +12,18 @@ export const CONFIDENCE = {
   unverifiedQuote: 0.5,
 };
 
-export interface Confidence {
-  level: "high" | "medium" | "low";
-  reason: string;
-}
-
 /** Evidence that is an Independent source: tagged with an Origin, and not someone else's Fact-check. */
 function independent(evidence: Evidence[]) {
   return evidence.filter((e): e is Evidence & { origin: string } => e.origin !== null && !e.factCheck);
 }
 
-/** Distinct Origins on each side (CONTEXT.md "Independent source"). */
+/** Distinct Origins on each side, and in all (CONTEXT.md "Independent source"). */
 export function originsBySide(evidence: Evidence[]) {
   const on = (stance: Evidence["stance"]) =>
     new Set(independent(evidence).filter((e) => e.stance === stance).map((e) => e.origin));
-  return { supports: on("supports"), contradicts: on("contradicts") };
+  const supports = on("supports");
+  const contradicts = on("contradicts");
+  return { supports, contradicts, total: new Set([...supports, ...contradicts]).size };
 }
 
 /** The side whose Evidence backs the label. ponytail: Misleading counts the side that corrects the
@@ -42,7 +39,7 @@ const sources = (n: number) => (n === 1 ? "1 Independent source" : `${n} Indepen
 /** `probability` is how sure the deciding Verdict was of its label (0 if it gave no usable number). */
 export function confidenceOf(label: VerdictLabel, probability: number, evidence: Evidence[]): Confidence {
   const sides = originsBySide(evidence);
-  const total = new Set([...sides.supports, ...sides.contradicts]).size;
+  const { total } = sides;
   if (total === 0) return { level: "low", reason: "No Independent source confirms or denies it." };
   if (label === "unconfirmed") {
     return {
@@ -54,9 +51,13 @@ export function confidenceOf(label: VerdictLabel, probability: number, evidence:
   const stance = AGREEING[label];
   const agreeing = sides[stance].size;
   const backing = independent(evidence).filter((e) => e.stance === stance);
-  const quality =
-    backing.reduce((sum, e) => sum + CONFIDENCE.tierQuality[e.tier] * (e.quoteVerified ? 1 : CONFIDENCE.unverifiedQuote), 0) /
-    (backing.length || 1);
+  // Quality per Origin (its best item), so 15 copies of one wire line weigh as one source.
+  const best = new Map<string, number>();
+  for (const e of backing) {
+    const q = CONFIDENCE.tierQuality[e.tier] * (e.quoteVerified ? 1 : CONFIDENCE.unverifiedQuote);
+    best.set(e.origin, Math.max(q, best.get(e.origin) ?? 0));
+  }
+  const quality = [...best.values()].reduce((sum, q) => sum + q, 0) / (best.size || 1);
   const { weights } = CONFIDENCE;
   const score =
     weights.probability * probability +

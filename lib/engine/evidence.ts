@@ -160,7 +160,5 @@ export async function* processEvidence(
   // ponytail: an item the tagger leaves out gets no Origin and isn't counted, erring towards
   // "Not confirmed yet"; count each as its own Origin if that under-counts in the accuracy run.
   const evidence = accepted.map((e) => ({ ...e, origin: originById.get(e.id) ?? null }));
-  const { supports, contradicts } = originsBySide(evidence);
-  const independentSources = new Set([...supports, ...contradicts]).size;
-  return { evidence, independentSources };
+  return { evidence, independentSources: originsBySide(evidence).total };
 }

@@ -1,6 +1,6 @@
 import { StepStatusIcon } from "@/components/step-status-icon";
 import { getResult } from "@/lib/engine/boundary.ts";
-import type { Evidence, ReasoningStep, Result, Tier, VerdictLabel } from "@/lib/engine/schemas.ts";
+import type { Confidence, Evidence, ReasoningStep, Result, Tier, VerdictLabel } from "@/lib/engine/schemas.ts";
 import { isFactChecker, tierOf } from "@/lib/engine/sources.ts";
 
 const LABEL_TEXT: Record<VerdictLabel, string> = {
@@ -17,7 +17,7 @@ const LABEL_CLASS: Record<VerdictLabel, string> = {
   unconfirmed: "bg-muted text-muted-foreground",
 };
 
-const CONFIDENCE_TEXT = { high: "High", medium: "Medium", low: "Low" } as const;
+const CONFIDENCE_TEXT: Record<Confidence["level"], string> = { high: "High", medium: "Medium", low: "Low" };
 
 const TIER_TEXT: Record<Tier, string> = {
   1: "Official source",
