@@ -14,7 +14,10 @@ const PAGE_TEXT_CHARS = 6_000;
 function toDay(value: string | undefined): string | null {
   if (!value) return null;
   const plain = /^\d{4}-\d{2}-\d{2}/.exec(value)?.[0];
-  if (plain) return plain;
+  if (plain) {
+    const parsed = new Date(`${plain}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === plain ? plain : null;
+  }
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
 }
