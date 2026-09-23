@@ -48,6 +48,7 @@ export const FACT_CHECKERS = [
   "snopes.com",
   "politifact.com",
   "fullfact.org",
+  "factcheck.afp.com",
 ];
 
 export function isFactChecker(hostname: string): boolean {

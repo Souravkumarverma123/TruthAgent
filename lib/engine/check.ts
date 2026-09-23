@@ -99,11 +99,14 @@ export async function* check(message: string, options: CheckOptions = {}): Async
     );
     const { evidence, independentSources } = yield* processEvidence(candidates, pages);
 
-    const judged = await callOpenAI({
-      fixture: verdictFixture(),
-      live: (client) => liveVerdict(client, claim.canonical_en, claimDate, evidence, independentSources),
-    });
-    const verdict = independentSources === 0 ? NOT_CONFIRMED : judged;
+    // Decided by code when nothing independent backs either side, so no model call is spent on it.
+    const verdict =
+      independentSources === 0
+        ? NOT_CONFIRMED
+        : await callOpenAI({
+            fixture: verdictFixture(),
+            live: (client) => liveVerdict(client, claim.canonical_en, claimDate, evidence, independentSources),
+          });
     yield { type: "verdict", label: verdict.label, oneLine: verdict.one_line };
 
     const result: Result = {
