@@ -67,6 +67,14 @@ test("replay: read_page shows the page's published date, else the earliest Wayba
   assert.ok(done.some((s) => /earliest archived copy 5 Jan 2004/.test(s.line)), "date from Wayback");
 });
 
+test("replay: a page whose metadata date isn't a real day is still read", async () => {
+  const done = steps(await collect("Amitabh Bachchan has died, forward this to everyone")).filter(
+    (s) => s.tool === "read_page" && s.status === "done",
+  );
+
+  assert.ok(done.some((s) => /dailyroundup/.test(s.line) && /no date found/.test(s.line)));
+});
+
 test("replay: the proof page's Result keeps the agent steps as the user last saw them", async () => {
   const events = await collect("Amitabh Bachchan has died, forward this to everyone");
   const done = events.at(-1)!;

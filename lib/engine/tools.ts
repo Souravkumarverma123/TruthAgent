@@ -9,15 +9,20 @@ const TOOL_MS = 8_000;
 /** Enough for the model to find a quote; keeps a turn's tokens small. */
 const PAGE_TEXT_CHARS = 6_000;
 
+/** A YYYY-MM-DD string that is a real calendar day, else null. Round-tripping
+ * through Date rejects both unparseable days and ones it would roll over,
+ * such as 2026-02-30. */
+function calendarDay(day: string): string | null {
+  const parsed = new Date(`${day}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
+}
+
 /** Keeps the date as written when the page gives a plain YYYY-MM-DD prefix,
  * so an IST timestamp near midnight doesn't slip a day in UTC. */
 function toDay(value: string | undefined): string | null {
   if (!value) return null;
   const plain = /^\d{4}-\d{2}-\d{2}/.exec(value)?.[0];
-  if (plain) {
-    const parsed = new Date(`${plain}T00:00:00Z`);
-    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === plain ? plain : null;
-  }
+  if (plain) return calendarDay(plain);
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
 }
@@ -38,7 +43,8 @@ async function earliestWaybackDay(url: string, signal: AbortSignal): Promise<str
   const cdx = waybackCdxUrl(url);
   const rows: string[][] = JSON.parse(await fetchText(cdx, { signal, fixture: pageFixture(cdx) }));
   const timestamp = rows[1]?.[0];
-  return timestamp ? `${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)}` : null;
+  if (!timestamp) return null;
+  return calendarDay(`${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)}`);
 }
 
 // ponytail: regex HTML-to-text, a few named entities, first 6,000 chars only.

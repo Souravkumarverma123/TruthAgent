@@ -15,19 +15,21 @@ const ALT_NEWS = "https://www.altnews.in/tag/amitabh-bachchan-death-hoax/";
 const WIKIPEDIA = "https://en.wikipedia.org/wiki/Amitabh_Bachchan";
 /** Not recorded below, so reading it fails, like a hoax site that's gone down. */
 const HOAX_SITE = "https://www.viralnewsnow.example/amitabh-bachchan-passes-away";
+/** Readable page whose metadata date isn't a real day. */
+const BAD_DATE_SITE = "https://www.dailyroundup.example/bachchan-rumour-debunked";
 
 /**
  * The agent's turns in the fixed demo scenario (the recurring Amitabh
  * Bachchan death hoax, see docs/handoff.md "Demo Claims"): one search and
- * three page reads (one dated by the page, one by Wayback, one that fails),
- * then the Evidence.
+ * four page reads (one dated by the page, one by Wayback, one with an
+ * unusable date, one that fails), then the Evidence.
  */
 export function agentTurnFixture(turnIndex: number): AgentTurn {
   if (turnIndex === 0) {
     return {
       responseId: "resp_replay_0",
       searches: [{ query: "Amitabh Bachchan death news", failed: false }],
-      calls: [ALT_NEWS, WIKIPEDIA, HOAX_SITE].map((url, i) => ({
+      calls: [ALT_NEWS, WIKIPEDIA, BAD_DATE_SITE, HOAX_SITE].map((url, i) => ({
         callId: `call_replay_${i}`,
         name: "read_page",
         arguments: JSON.stringify({ url }),
@@ -65,6 +67,9 @@ const RECORDED_PAGES: Record<string, string> = {
   [WIKIPEDIA]:
     "<html><head><title>Amitabh Bachchan - Wikipedia</title></head>" +
     "<body><p>Amitabh Bachchan (born 11 October 1942) is an Indian actor, film producer and television host.</p></body></html>",
+  [BAD_DATE_SITE]:
+    '<html><head><meta property="article:published_time" content="2026-13-40"></head>' +
+    "<body><p>Police said the message circulating on WhatsApp is a rumour.</p></body></html>",
   [waybackCdxUrl(WIKIPEDIA)]:
     '[["timestamp"],["20040105093012"]]',
 };
