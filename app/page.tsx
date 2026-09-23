@@ -58,6 +58,11 @@ export default function Home() {
           upsert({ id: "understood", line: `Found the claim: "${data.claim.canonicalEn}"` });
         } else if (type === "step") {
           upsert({ id: data.id, line: data.line, status: data.status });
+        } else if (type === "evidence") {
+          upsert({
+            id: `evidence-${data.id}`,
+            line: `Kept a quote from ${data.site} (${data.stance === "supports" ? "for" : "against"} the claim)`,
+          });
         } else if (type === "verdict") {
           upsert({ id: "verdict", line: "Verdict ready" });
         } else if (type === "done") {

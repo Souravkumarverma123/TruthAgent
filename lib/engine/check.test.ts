@@ -10,12 +10,13 @@ async function collect(message: string, options?: CheckOptions): Promise<CheckEv
   return events;
 }
 
-test("replay: a Check streams understood, agent steps, verdict, done and asserts on what a user would see", async () => {
+test("replay: a Check streams understood, agent steps, evidence, verdict, done and asserts on what a user would see", async () => {
   const events = await collect("Amitabh Bachchan has died, forward this to everyone");
 
   const types = events.map((e) => e.type);
   assert.equal(types[0], "understood");
-  assert.ok(types.slice(1, -2).every((t) => t === "step"));
+  const middle = types.slice(1, -2).join(" ");
+  assert.match(middle, /^(step )+(evidence ?)+$/);
   assert.deepEqual(types.slice(-2), ["verdict", "done"]);
 
   const understood = events[0];
@@ -87,6 +88,119 @@ test("replay: the proof page's Result keeps the agent steps as the user last saw
     [...lastLines.values()],
   );
   assert.ok(result?.steps.every((s) => s.status !== "running"));
+});
+
+async function resultOf(events: CheckEvent[]) {
+  const done = events.at(-1)!;
+  assert.equal(done.type, "done");
+  const result = await getResult(done.type === "done" ? done.id : "");
+  assert.ok(result);
+  return result;
+}
+
+const BACHCHAN = "Amitabh Bachchan has died, forward this to everyone";
+
+test("replay: the proof page's Evidence has For and Against sides, each item with site, tier, date, quote and Origin", async () => {
+  const result = await resultOf(await collect(BACHCHAN));
+
+  const altNews = result.evidence.find((e) => e.site === "altnews.in");
+  assert.deepEqual(
+    { ...altNews, quote: undefined, url: undefined },
+    {
+      id: altNews?.id,
+      site: "altnews.in",
+      tier: 2,
+      date: "2024-03-12",
+      quote: undefined,
+      quoteVerified: true,
+      stance: "contradicts",
+      origin: "Alt News's own reporting",
+      factCheck: true,
+      url: undefined,
+    },
+  );
+  assert.ok(result.evidence.some((e) => e.stance === "supports"), "a For side");
+  assert.ok(result.evidence.some((e) => e.stance === "contradicts"), "an Against side");
+  assert.deepEqual(
+    result.evidence.map((e) => e.id),
+    result.evidence.map((_, i) => `E${i + 1}`),
+  );
+});
+
+test("replay: Evidence from a blocked domain never appears", async () => {
+  const events = await collect(BACHCHAN);
+  const result = await resultOf(events);
+
+  assert.ok(!result.evidence.some((e) => e.site.includes("mediamass")));
+  assert.ok(!events.some((e) => e.type === "evidence" && e.site.includes("mediamass")));
+});
+
+test("replay: an `evidence` event is streamed for each accepted item, before the verdict", async () => {
+  const events = await collect(BACHCHAN);
+  const result = await resultOf(events);
+  const evidenceEvents = events.filter((e) => e.type === "evidence");
+
+  assert.deepEqual(
+    evidenceEvents.map((e) => ({ id: e.id, site: e.site, stance: e.stance })),
+    result.evidence.map((e) => ({ id: e.id, site: e.site, stance: e.stance })),
+  );
+  assert.ok(events.indexOf(evidenceEvents.at(-1)!) < events.findIndex((e) => e.type === "verdict"));
+});
+
+test("replay: a quote not found on its page is dropped; one whose page can't be fetched is kept as 'quote not verified'", async () => {
+  const result = await resultOf(await collect(BACHCHAN));
+
+  assert.ok(!result.evidence.some((e) => e.site === "dailyroundup.example"), "invented quote dropped");
+  assert.ok(!result.evidence.some((e) => e.site === "ndtv.com"), "a link that doesn't exist (404) is dropped, not kept unverified");
+  const unfetched = result.evidence.find((e) => e.site === "viralnewsnow.example");
+  assert.equal(unfetched?.quoteVerified, false);
+  assert.ok(result.evidence.filter((e) => e !== unfetched).every((e) => e.quoteVerified));
+});
+
+test("replay: 15 sites carrying one ANI line count as 1 Independent source", async () => {
+  const result = await resultOf(await collect("RBI is banning ₹500 notes from 1 January, forward to all"));
+
+  assert.equal(result.evidence.length, 15);
+  assert.equal(new Set(result.evidence.map((e) => e.site)).size, 15);
+  assert.equal(result.independentSources, 1);
+});
+
+test("replay: distinct Origins count as distinct Independent sources", async () => {
+  const result = await resultOf(await collect(BACHCHAN));
+
+  const origins = new Set(result.evidence.filter((e) => !e.factCheck).map((e) => e.origin));
+  assert.equal(result.independentSources, origins.size);
+  assert.ok(result.independentSources >= 2);
+});
+
+const LAPTOP = "Government is giving free laptops to all students, register today";
+
+test("replay: someone else's Fact-check is shown but is never an Independent source", async () => {
+  const events = await collect(LAPTOP);
+  const result = await resultOf(events);
+
+  assert.deepEqual(
+    result.evidence.map((e) => ({ site: e.site, factCheck: e.factCheck })),
+    [{ site: "boomlive.in", factCheck: true }],
+  );
+  assert.equal(result.independentSources, 0);
+});
+
+test("replay: with no Independent source either way the Verdict is Not confirmed yet", async () => {
+  const events = await collect(LAPTOP);
+  const verdict = events.find((e) => e.type === "verdict");
+
+  assert.equal(verdict?.label, "unconfirmed");
+  assert.equal((await resultOf(events)).verdict.label, "unconfirmed");
+});
+
+test("replay: a quote whose page writes it with a named HTML entity is kept", async () => {
+  const result = await resultOf(await collect(BACHCHAN));
+
+  // altnews.in's page has "Bachchan&rsquo;s", the quote a curly apostrophe.
+  const altNews = result.evidence.find((e) => e.site === "altnews.in");
+  assert.match(altNews?.quote ?? "", /Bachchan’s death/);
+  assert.equal(altNews?.quoteVerified, true);
 });
 
 test("replay: text over 2,000 characters is rejected with a friendly error event", async () => {

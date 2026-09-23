@@ -6,8 +6,6 @@ import { isBlocked } from "./sources.ts";
 
 /** Per tool call (the Wayback lookup shares it with the page fetch). */
 const TOOL_MS = 8_000;
-/** Enough for the model to find a quote; keeps a turn's tokens small. */
-const PAGE_TEXT_CHARS = 6_000;
 
 /** A YYYY-MM-DD string that is a real calendar day, else null. Round-tripping
  * through Date rejects both unparseable days and ones it would roll over,
@@ -47,29 +45,101 @@ async function earliestWaybackDay(url: string, signal: AbortSignal): Promise<str
   return calendarDay(`${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)}`);
 }
 
-// ponytail: regex HTML-to-text, a few named entities, first 6,000 chars only.
-// A quote deep in a long page or behind numeric entities won't be seen; use a
-// real HTML parser (and the quote check in #5) if that starts dropping Evidence.
+function codePoint(n: number): string {
+  return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : " ";
+}
+
+/** The named references news pages actually write, above all the punctuation a
+ * quote can carry: a page writing `&rsquo;` must still match a quote written `’`. */
+const NAMED_ENTITIES: Record<string, string> = {
+  nbsp: " ",
+  ensp: " ",
+  emsp: " ",
+  thinsp: " ",
+  shy: "",
+  quot: '"',
+  apos: "'",
+  lsquo: "‘",
+  rsquo: "’",
+  sbquo: "‚",
+  ldquo: "“",
+  rdquo: "”",
+  bdquo: "„",
+  lsaquo: "‹",
+  rsaquo: "›",
+  laquo: "«",
+  raquo: "»",
+  prime: "′",
+  Prime: "″",
+  ndash: "–",
+  mdash: "—",
+  minus: "−",
+  hellip: "…",
+  bull: "•",
+  middot: "·",
+  deg: "°",
+  euro: "€",
+  pound: "£",
+  yen: "¥",
+  cent: "¢",
+  copy: "©",
+  reg: "®",
+  trade: "™",
+  times: "×",
+  divide: "÷",
+  frac12: "½",
+  frac14: "¼",
+  frac34: "¾",
+  dagger: "†",
+  Dagger: "‡",
+  sect: "§",
+  para: "¶",
+  lt: "<",
+  gt: ">",
+  amp: "&",
+};
+
+/** Character references back to their characters, so the quote check compares text with
+ * text. One left-to-right pass, so `&amp;rsquo;` decodes to the literal text `&rsquo;`.
+ * A name we don't know is left as written rather than guessed at. */
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => codePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => codePoint(Number(dec)))
+    .replace(/&([a-zA-Z][a-zA-Z0-9]*);/g, (match, name) => NAMED_ENTITIES[name] ?? match);
+}
+
+// ponytail: regex HTML-to-text and a table of named references; use a real HTML
+// parser if the quote check starts dropping Evidence it shouldn't.
 function pageText(html: string): string {
-  return html
-    .replace(/<(script|style|noscript|svg)\b[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
+  return decodeEntities(
+    html.replace(/<(script|style|noscript|svg)\b[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " "),
+  )
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, PAGE_TEXT_CHARS);
+    .trim();
 }
 
 export interface Page {
   url: string;
   published: string | null;
   date_source: "page" | "wayback" | null;
+  /** The whole page's text; the agent shows the model only the start of it. */
   text: string;
+}
+
+/** What reading a page came to: the page, or why not. "dead" means the page isn't
+ * there (404, no such domain), so a url the model made up; "unreachable" means
+ * it may exist but couldn't be read just now (timeout, 403, 5xx). */
+export type PageRead = Page | "dead" | "unreachable";
+
+export function failedRead(error: unknown): "dead" | "unreachable" {
+  if (!(error instanceof Error)) return "unreachable";
+  const code = (error as NodeJS.ErrnoException).code;
+  const dead =
+    code === "ENOTFOUND" ||
+    code === "ERR_INVALID_URL" ||
+    /^HTTP (404|410)$|^Not a public web page$|block list/.test(error.message);
+  return dead ? "dead" : "unreachable";
 }
 
 /** The `read_page` tool: page text plus a published date, from the page itself else the earliest Wayback copy. */

@@ -1,6 +1,7 @@
 import { StepStatusIcon } from "@/components/step-status-icon";
 import { getResult } from "@/lib/engine/boundary.ts";
-import type { VerdictLabel } from "@/lib/engine/schemas.ts";
+import type { Evidence, Result, Tier, VerdictLabel } from "@/lib/engine/schemas.ts";
+import { isFactChecker, tierOf } from "@/lib/engine/sources.ts";
 
 const LABEL_TEXT: Record<VerdictLabel, string> = {
   true: "True",
@@ -16,9 +17,95 @@ const LABEL_CLASS: Record<VerdictLabel, string> = {
   unconfirmed: "bg-muted text-muted-foreground",
 };
 
+const TIER_TEXT: Record<Tier, string> = {
+  1: "Official source",
+  2: "Fact-checker or major outlet",
+  3: "Other site",
+};
+
+const DAY_FORMAT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
+/** Saved Results last 30 days, so a proof page can be asked for one saved before a field
+ * existed. What's there is shown; what isn't is worked out from the url or left out. */
+type StoredResult = Omit<Result, "evidence" | "independentSources" | "steps"> & {
+  evidence?: (Partial<Evidence> & { url: string; quote: string })[];
+  independentSources?: number;
+  steps?: Result["steps"];
+};
+
+/** A stance we don't know is the honest answer for older Evidence: it's shown, just not on a side. */
+type ShownEvidence = Omit<Evidence, "stance"> & { stance: Evidence["stance"] | null };
+
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+function shownEvidence(stored: StoredResult["evidence"]): ShownEvidence[] {
+  return (stored ?? []).map((item, i) => {
+    const hostname = hostnameOf(item.url);
+    return {
+      id: item.id ?? `E${i + 1}`,
+      url: item.url,
+      site: item.site ?? hostname.replace(/^www\./, ""),
+      tier: item.tier ?? tierOf(hostname),
+      date: item.date ?? null,
+      quote: item.quote,
+      quoteVerified: item.quoteVerified !== false,
+      stance: item.stance === "supports" || item.stance === "contradicts" ? item.stance : null,
+      origin: item.origin ?? null,
+      factCheck: item.factCheck ?? isFactChecker(hostname),
+    };
+  });
+}
+
+function EvidenceColumn({ title, items }: { title: string; items: ShownEvidence[] }) {
+  return (
+    <section className="flex flex-col gap-3">
+      <h3 className="text-sm font-medium text-muted-foreground">
+        {title} ({items.length})
+      </h3>
+      {items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nothing found.</p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {items.map((item) => (
+            <li key={item.id} className="rounded-lg border border-border p-3">
+              <p className="text-sm text-foreground">&ldquo;{item.quote}&rdquo;</p>
+              {!item.quoteVerified && (
+                <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">Quote not verified</p>
+              )}
+              <a
+                href={item.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 block text-sm font-medium text-primary underline underline-offset-4"
+              >
+                {item.site}
+              </a>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {TIER_TEXT[item.tier]} · {item.date ? DAY_FORMAT.format(new Date(item.date)) : "No date found"}
+              </p>
+              <p className="text-xs text-muted-foreground">Origin: {item.origin ?? "not identified"}</p>
+              {item.factCheck && (
+                <p className="text-xs text-muted-foreground">
+                  Someone else&apos;s fact-check: a lead, not an Independent source
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export default async function ProofPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const result = await getResult(id);
+  const result: StoredResult | null = await getResult(id);
 
   if (!result) {
     return (
@@ -32,9 +119,11 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
 
   // Results saved before agent steps existed (issue #3) have none.
   const steps = result.steps ?? [];
+  const evidence = shownEvidence(result.evidence);
+  const unsorted = evidence.filter((e) => e.stance === null);
 
   return (
-    <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-6 px-6 py-16">
+    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-16">
       <span
         className={`inline-flex w-fit items-center rounded-full px-4 py-1.5 text-lg font-semibold ${LABEL_CLASS[result.verdict.label]}`}
       >
@@ -48,26 +137,20 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
         <p className="mt-1 text-foreground">{result.mainClaim.original}</p>
       </section>
 
-      {result.evidence.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-sm font-medium text-muted-foreground">Sources</h2>
-          <ul className="flex flex-col gap-3">
-            {result.evidence.map((item, i) => (
-              <li key={i} className="rounded-lg border border-border p-3">
-                <p className="text-sm text-foreground">&ldquo;{item.quote}&rdquo;</p>
-                <a
-                  href={item.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-1 block text-sm font-medium text-primary underline underline-offset-4"
-                >
-                  {item.site}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium text-muted-foreground">Evidence</h2>
+        {result.independentSources !== undefined && (
+          <p className="text-sm text-foreground">
+            {result.independentSources === 1 ? "1 Independent source" : `${result.independentSources} Independent sources`}
+            <span className="text-muted-foreground"> (sites repeating one report count once)</span>
+          </p>
+        )}
+        <div className="grid gap-6 sm:grid-cols-2">
+          <EvidenceColumn title="For the claim" items={evidence.filter((e) => e.stance === "supports")} />
+          <EvidenceColumn title="Against the claim" items={evidence.filter((e) => e.stance === "contradicts")} />
+        </div>
+        {unsorted.length > 0 && <EvidenceColumn title="Other evidence" items={unsorted} />}
+      </section>
 
       {steps.length > 0 && (
         <section className="flex flex-col gap-3">

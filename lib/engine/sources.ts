@@ -1,13 +1,95 @@
 // Source knowledge: plain data, seeded from docs/research/trusted-sources.md.
-// Trust tiers per domain are added by issue #5.
-import type { ClaimType } from "./schemas.ts";
+import type { ClaimType, Tier } from "./schemas.ts";
+
+/** A domain entry matches itself and its subdomains. */
+function matches(hostname: string, domains: string[]): boolean {
+  return domains.some((d) => hostname === d || hostname.endsWith(`.${d}`));
+}
 
 /** Never Evidence: auto-generated death hoaxes and satire. Bare domains, no scheme
  * (the web_search `blocked_domains` format). */
 export const BLOCKED_DOMAINS = ["mediamass.net", "fakingnews.com", "theonion.com"];
 
 export function isBlocked(hostname: string): boolean {
-  return BLOCKED_DOMAINS.some((d) => hostname === d || hostname.endsWith(`.${d}`));
+  return matches(hostname, BLOCKED_DOMAINS);
+}
+
+/** Tier 1: official or primary. Government suffixes cover PIB, ministries, the e-Gazette, IMD, NCS, NASA, CDC. */
+const TIER_1 = [
+  "gov.in",
+  "nic.in",
+  "gov",
+  "rbi.org.in",
+  "sansad.in",
+  "nseindia.com",
+  "bseindia.com",
+  "who.int",
+  "un.org",
+  "reliefweb.int",
+  "gdacs.org",
+  "worldbank.org",
+  "imf.org",
+  "esa.int",
+  "cochranelibrary.com",
+  "crossref.org",
+];
+
+/** Fact-checking organisations: what they publish is someone else's verdict, a lead
+ * (CONTEXT.md "Fact-check"). Kept at tier 2, but never an Independent source. */
+export const FACT_CHECKERS = [
+  "boomlive.in",
+  "factly.in",
+  "newschecker.in",
+  "vishvasnews.com",
+  "factcrescendo.com",
+  "newsmobile.in",
+  "newsmeter.in",
+  "altnews.in",
+  "snopes.com",
+  "politifact.com",
+  "fullfact.org",
+  "factcheck.afp.com",
+];
+
+export function isFactChecker(hostname: string): boolean {
+  return matches(hostname, FACT_CHECKERS);
+}
+
+/** Tier 2: fact-checkers and major outlets, incl. the news agencies. Wikipedia is left at tier 3:
+ * it can be edited during a rumour (trusted-sources.md §8). */
+const TIER_2 = [
+  ...FACT_CHECKERS,
+  // News agencies and major outlets
+  "prsindia.org",
+  "reuters.com",
+  "apnews.com",
+  "afp.com",
+  "aninews.in",
+  "ptinews.com",
+  "indiatoday.in",
+  "thequint.com",
+  "thelallantop.com",
+  "thehindu.com",
+  "indianexpress.com",
+  "hindustantimes.com",
+  "ndtv.com",
+  "timesofindia.indiatimes.com",
+  "economictimes.indiatimes.com",
+  "livemint.com",
+  "business-standard.com",
+  "theprint.in",
+  "scroll.in",
+  "bbc.com",
+  "bbc.co.uk",
+  "theguardian.com",
+  "nytimes.com",
+  "britannica.com",
+];
+
+export function tierOf(hostname: string): Tier {
+  if (matches(hostname, TIER_1)) return 1;
+  if (matches(hostname, TIER_2)) return 2;
+  return 3;
 }
 
 /** Who owns the fact, per Claim type (CONTEXT.md "Authority"). Goes into the agent's prompt as text. */

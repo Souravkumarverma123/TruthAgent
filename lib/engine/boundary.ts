@@ -154,12 +154,16 @@ function requestPage(url: URL, signal: AbortSignal): Promise<PageResponse> {
 
 /**
  * Fetches a web page (or Wayback API) as text. In replay mode, `fixture` is
- * the recorded body for this exact URL; no recording means the fetch fails,
- * just like an unreachable page would live.
+ * the recorded body for this exact URL, or its HTTP error status; no
+ * recording means the fetch fails, just like an unreachable page would live.
  */
-export async function fetchText(url: string, params: { signal: AbortSignal; fixture: string | undefined }): Promise<string> {
+export async function fetchText(
+  url: string,
+  params: { signal: AbortSignal; fixture: string | number | undefined },
+): Promise<string> {
   if (outsideWorldMode() === "replay") {
     if (params.fixture === undefined) throw new Error(`No replay recording for ${url}`);
+    if (typeof params.fixture === "number") throw new Error(`HTTP ${params.fixture}`);
     return params.fixture;
   }
   // Redirects are followed by hand so every hop gets the public-URL check.

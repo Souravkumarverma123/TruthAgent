@@ -37,17 +37,47 @@ export const UnderstandSchema = z.object({
 });
 export type Understood = z.infer<typeof UnderstandSchema>;
 
-/** A quoted, linked piece of Evidence the agent loop found. */
-export const EvidenceSchema = z.object({
+/** A quoted, linked Evidence candidate the agent loop found. Code decides whether it's kept (evidence.ts). */
+export const EvidenceCandidateSchema = z.object({
   url: z.string(),
-  site: z.string(),
   quote: z.string(),
   stance: z.enum(["supports", "contradicts", "irrelevant"]),
 });
-export type Evidence = z.infer<typeof EvidenceSchema>;
+export type EvidenceCandidate = z.infer<typeof EvidenceCandidateSchema>;
 
 /** Structured output the agent loop ends with: its Evidence candidates. */
-export const EvidenceCandidatesSchema = z.object({ evidence: z.array(EvidenceSchema) });
+export const EvidenceCandidatesSchema = z.object({ evidence: z.array(EvidenceCandidateSchema) });
+
+/** Structured output of Origin tagging (one luna call over all accepted Evidence): Evidence grouped
+ * by Origin, so one wire story is one group whatever it's called. */
+export const OriginsSchema = z.object({
+  origins: z.array(z.object({ origin: z.string(), evidence_ids: z.array(z.string()) })),
+});
+export type OriginsOutput = z.infer<typeof OriginsSchema>;
+
+/** 1 official or primary, 2 fact-checker or major outlet, 3 other (sources.ts). */
+export type Tier = 1 | 2 | 3;
+
+/** Accepted Evidence: passed the block list and the quote check. Shown in the For or Against column. */
+export interface Evidence {
+  /** E1…En, what the Verdict cites. */
+  id: string;
+  url: string;
+  /** The page's hostname, from the url (not the model's say-so). */
+  site: string;
+  tier: Tier;
+  /** Published day (YYYY-MM-DD), from the page else its earliest Wayback copy. */
+  date: string | null;
+  quote: string;
+  /** False when the page couldn't be fetched to check the quote; weighted less. */
+  quoteVerified: boolean;
+  stance: "supports" | "contradicts";
+  /** Where the information first comes from, e.g. "ANI wire"; null if untagged. */
+  origin: string | null;
+  /** Published by a fact-checking organisation: a lead, so never an Independent
+   * source (CONTEXT.md "Fact-check"). Its own box is issue #6. */
+  factCheck: boolean;
+}
 
 /** Structured output of the Verdict step (one call, luna, over the agent's Evidence). */
 export const VerdictSchema = z.object({
@@ -65,6 +95,8 @@ export interface Result {
   mainClaim: { original: string; canonicalEn: string };
   verdict: { label: VerdictLabel; oneLine: string };
   evidence: Evidence[];
+  /** Distinct Origins among the Evidence (CONTEXT.md "Independent source"). */
+  independentSources: number;
   /** The agent's steps as the user last saw them live. */
   steps: AgentStep[];
 }
@@ -77,11 +109,11 @@ export interface AgentStep {
   status: "running" | "done" | "failed";
 }
 
-/** Step events streamed from the Check endpoint. `cache` and `evidence` are
- * added by issues #12 and #5. */
+/** Step events streamed from the Check endpoint. `cache` is added by issue #12. */
 export type CheckEvent =
   | { type: "understood"; claim: { original: string; canonicalEn: string } }
   | ({ type: "step"; id: string } & AgentStep)
+  | { type: "evidence"; id: string; site: string; stance: Evidence["stance"] }
   | { type: "verdict"; label: VerdictLabel; oneLine: string }
   | { type: "done"; id: string }
   | { type: "error"; message: string };

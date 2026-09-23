@@ -1,10 +1,11 @@
 // The Engine's one entry point (AGENTS.md: "One test seam"). Understand →
-// agent loop (agent.ts) → one luna Verdict → save. See docs/architecture.md §5
+// agent loop (agent.ts) → Evidence processing (evidence.ts) → one luna Verdict → save. See docs/architecture.md §5
 // for the full pipeline this tracer bullet is the first slice of.
 import type OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { agentLoop } from "./agent.ts";
 import { callOpenAI, saveResult } from "./boundary.ts";
+import { processEvidence } from "./evidence.ts";
 import { understandFixture, verdictFixture } from "./fixtures.ts";
 import { MODELS } from "./models.ts";
 import {
@@ -37,11 +38,20 @@ async function liveUnderstand(client: OpenAI, message: string): Promise<Understo
   return response.output_parsed;
 }
 
+/** No Origin for or against the Claim means nothing independent backs it, whether the Evidence is
+ * only Fact-checks or Origin tagging failed. The Verdict is then "Not confirmed yet" whatever the
+ * model says (CONTEXT.md "Not confirmed yet"; the full Confidence rule is issue #8). */
+const NOT_CONFIRMED: VerdictOutput = {
+  label: "unconfirmed",
+  one_line: "No independent source has confirmed or denied this yet.",
+};
+
 async function liveVerdict(
   client: OpenAI,
   claim: string,
   claimDate: string,
   evidence: Evidence[],
+  independentSources: number,
 ): Promise<VerdictOutput> {
   const response = await client.responses.parse({
     model: MODELS.luna,
@@ -49,8 +59,10 @@ async function liveVerdict(
       `Today's date is ${new Date().toISOString().slice(0, 10)}. Judge the Claim as of ${claimDate}, ` +
       "using only the Evidence given. Decide: true, false, misleading, or " +
       "unconfirmed (too few independent sources either way — never guess). " +
-      "Give a one-line plain-language reason.",
-    input: `Claim: ${claim}\n\nEvidence:\n${JSON.stringify(evidence)}`,
+      "Give a one-line plain-language reason. Evidence marked quoteVerified: false couldn't be checked " +
+      "against its page; items sharing an Origin count as one Independent source, and items marked " +
+      "factCheck: true repeat someone else's verdict, so they are a lead, not an Independent source.",
+    input: `Claim: ${claim}\n\nIndependent sources: ${independentSources}\n\nEvidence:\n${JSON.stringify(evidence)}`,
     text: { format: zodTextFormat(VerdictSchema, "verdict") },
   });
   if (!response.output_parsed) throw new Error("Verdict step returned no output");
@@ -81,15 +93,20 @@ export async function* check(message: string, options: CheckOptions = {}): Async
     const claim = understood.main_claim;
     yield { type: "understood", claim: { original: claim.original, canonicalEn: claim.canonical_en } };
 
-    const { evidence, steps } = yield* agentLoop(
+    const { candidates, steps, pages } = yield* agentLoop(
       { canonicalEn: claim.canonical_en, claimType: claim.claim_type },
       claimDate,
     );
+    const { evidence, independentSources } = yield* processEvidence(candidates, pages);
 
-    const verdict = await callOpenAI({
-      fixture: verdictFixture(),
-      live: (client) => liveVerdict(client, claim.canonical_en, claimDate, evidence),
-    });
+    // Decided by code when nothing independent backs either side, so no model call is spent on it.
+    const verdict =
+      independentSources === 0
+        ? NOT_CONFIRMED
+        : await callOpenAI({
+            fixture: verdictFixture(),
+            live: (client) => liveVerdict(client, claim.canonical_en, claimDate, evidence, independentSources),
+          });
     yield { type: "verdict", label: verdict.label, oneLine: verdict.one_line };
 
     const result: Result = {
@@ -100,6 +117,7 @@ export async function* check(message: string, options: CheckOptions = {}): Async
       mainClaim: { original: claim.original, canonicalEn: claim.canonical_en },
       verdict: { label: verdict.label, oneLine: verdict.one_line },
       evidence,
+      independentSources,
       steps,
     };
     await saveResult(result);
