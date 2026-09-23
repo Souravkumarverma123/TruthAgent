@@ -43,3 +43,6 @@ next-env.d.ts
 
 # local tool state
 .kilo/
+
+# replay-mode Results (dev/test only, see lib/engine/boundary.ts)
+/.data/
