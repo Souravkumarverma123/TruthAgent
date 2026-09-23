@@ -9,10 +9,14 @@ import { originFixture } from "./fixtures.ts";
 import { MODELS } from "./models.ts";
 import { OriginsSchema, type CheckEvent, type Evidence, type EvidenceCandidate, type OriginsOutput } from "./schemas.ts";
 import { isBlocked, tierOf } from "./sources.ts";
-import { readPage, type Page } from "./tools.ts";
+import { failedRead, readPage, type PageRead } from "./tools.ts";
 
-/** Page text the Origin tagger sees per item: the top, where wire credits like "(ANI)" sit. */
+/** Page text the Origin tagger sees per item: the top, where wire credits like "(ANI)" sit.
+ * ponytail: a credit at the article's end ("with inputs from PTI") is missed; add the page's
+ * last few hundred chars if wire copies get counted as separate Origins. */
 const ORIGIN_CONTEXT_CHARS = 1_500;
+/** Shorter quotes, like a bare name, would match almost any page on the topic. */
+const MIN_QUOTE_WORDS = 4;
 
 /** Case, spacing, and curly vs straight quotes and dashes don't count against a quote. */
 function normalize(text: string): string {
@@ -49,7 +53,8 @@ async function liveOrigins(
       "For each piece of Evidence, say where its information first comes from: its Origin. Name who, e.g. " +
       "\"Alt News's own reporting\", \"ANI wire\", \"PTI wire\", \"Bachchan family statement\", \"RBI press release\", " +
       "\"a post by @handle on X\". Look for wire credits such as (ANI) or 'with inputs from PTI' in page_start. " +
-      "Items that carry the same wire story or quote the same statement share one Origin: give them exactly the same text.",
+      "Group the Evidence by Origin: items that carry the same wire story or quote the same statement are one group. " +
+      "Each Evidence id goes in exactly one group.",
     input: JSON.stringify(items),
     text: { format: zodTextFormat(OriginsSchema, "origins") },
   });
@@ -64,26 +69,31 @@ async function liveOrigins(
  */
 export async function* processEvidence(
   candidates: EvidenceCandidate[],
-  pagesRead: Map<string, Page | null>,
+  pagesRead: Map<string, PageRead>,
 ): AsyncGenerator<CheckEvent, { evidence: Evidence[]; independentSources: number }> {
-  // Pages the agent didn't read are fetched now, in parallel; null = couldn't be fetched.
-  const reads = new Map<string, Promise<Page | null>>();
+  // Pages the agent didn't read are fetched now, in parallel.
+  const reads = new Map<string, Promise<PageRead>>();
   const read = (url: string) => {
     if (!reads.has(url)) {
-      reads.set(url, pagesRead.has(url) ? Promise.resolve(pagesRead.get(url)!) : readPage(url).catch(() => null));
+      reads.set(url, pagesRead.has(url) ? Promise.resolve(pagesRead.get(url)!) : readPage(url).catch(failedRead));
     }
     return reads.get(url)!;
   };
   const kept = candidates.flatMap((candidate) => {
+    const { stance } = candidate;
     const hostname = hostnameOf(candidate.url);
-    if (!hostname || isBlocked(hostname) || candidate.stance === "irrelevant" || !quoteKey(candidate.quote)) return [];
-    return [{ ...candidate, stance: candidate.stance, hostname, page: read(candidate.url) }];
+    if (!hostname || isBlocked(hostname) || stance === "irrelevant") return [];
+    if (quoteKey(candidate.quote).split(" ").length < MIN_QUOTE_WORDS) return [];
+    return [{ ...candidate, stance, hostname, read: read(candidate.url) }];
   });
 
   const accepted: Evidence[] = [];
   const pageStart = new Map<string, string>();
   for (const candidate of kept) {
-    const page = await candidate.page;
+    const outcome = await candidate.read;
+    // A page that isn't there means a made-up link; one we couldn't reach keeps its quote, unverified.
+    if (outcome === "dead") continue;
+    const page = outcome === "unreachable" ? null : outcome;
     if (page && !normalize(page.text).includes(quoteKey(candidate.quote))) continue;
     const item: Evidence = {
       id: `E${accepted.length + 1}`,
@@ -102,6 +112,7 @@ export async function* processEvidence(
   }
   if (accepted.length === 0) return { evidence: [], independentSources: 0 };
 
+  // Tagging failing leaves Origins unknown (0 Independent sources, so "Not confirmed yet"), not the Check broken.
   const tagged = await callOpenAI({
     fixture: originFixture(accepted),
     live: (client) =>
@@ -109,11 +120,18 @@ export async function* processEvidence(
         client,
         accepted.map((e) => ({ id: e.id, site: e.site, quote: e.quote, page_start: pageStart.get(e.id)! })),
       ),
-  });
-  const originById = new Map(tagged.origins.map((o) => [o.id, o.origin.trim()]));
-  const evidence = accepted.map((e) => ({ ...e, origin: originById.get(e.id) || null }));
-  // ponytail: distinct Origin text, case-insensitive; relies on the tagger reusing the exact
-  // text for a shared Origin. Group ids in the tagger's output if near-duplicates slip through.
-  const independentSources = new Set(evidence.flatMap((e) => (e.origin ? [e.origin.toLowerCase()] : []))).size;
+  }).catch((): OriginsOutput => ({ origins: [] }));
+
+  // Each group is one Independent source; an id claimed twice keeps its first group, unknown ids are ignored.
+  const originById = new Map<string, string>();
+  let independentSources = 0;
+  for (const group of tagged.origins) {
+    const ids = group.evidence_ids.filter((id) => accepted.some((e) => e.id === id) && !originById.has(id));
+    for (const id of ids) originById.set(id, group.origin.trim());
+    if (ids.length > 0) independentSources++;
+  }
+  // ponytail: an item the tagger leaves out gets no Origin and isn't counted, erring towards
+  // "Not confirmed yet"; count each as its own Origin if that under-counts in the accuracy run.
+  const evidence = accepted.map((e) => ({ ...e, origin: originById.get(e.id) ?? null }));
   return { evidence, independentSources };
 }

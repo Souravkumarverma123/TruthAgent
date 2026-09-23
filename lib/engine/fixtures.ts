@@ -17,6 +17,8 @@ const WIKIPEDIA = "https://en.wikipedia.org/wiki/Amitabh_Bachchan";
 const HOAX_SITE = "https://www.viralnewsnow.example/amitabh-bachchan-passes-away";
 /** Readable page whose metadata date isn't a real day. */
 const BAD_DATE_SITE = "https://www.dailyroundup.example/bachchan-rumour-debunked";
+/** A url the model made up: the site answers 404. */
+const INVENTED_LINK = "https://www.ndtv.com/entertainment/amitabh-bachchan-dies-8812345";
 /** On the block list: never Evidence. */
 const MEDIAMASS = "https://en.mediamass.net/people/amitabh-bachchan/deathhoax.html";
 
@@ -80,12 +82,14 @@ export function agentTurnFixture(claim: string, turnIndex: number): AgentTurn {
       },
       { url: MEDIAMASS, quote: "Amitabh Bachchan dead at 83", stance: "supports" },
       { url: BAD_DATE_SITE, quote: "Police confirmed Amitabh Bachchan is alive and well", stance: "contradicts" },
+      { url: INVENTED_LINK, quote: "Amitabh Bachchan breathed his last at Lilavati Hospital", stance: "supports" },
     ],
   };
 }
 
-/** Recorded bodies, keyed by the exact URL fetched (pages and Wayback CDX lookups). */
-const RECORDED_PAGES: Record<string, string> = {
+/** Recorded bodies, keyed by the exact URL fetched (pages and Wayback CDX lookups). A number is an HTTP error status. */
+const RECORDED_PAGES: Record<string, string | number> = {
+  [INVENTED_LINK]: 404,
   [ALT_NEWS]:
     '<html><head><meta property="article:published_time" content="2024-03-12T10:30:00+05:30"></head>' +
     "<body><article><p>This is not the first time such a rumour about Amitabh Bachchan&#39;s death has gone viral.</p>" +
@@ -107,7 +111,7 @@ const RECORDED_PAGES: Record<string, string> = {
   ),
 };
 
-export function pageFixture(url: string): string | undefined {
+export function pageFixture(url: string): string | number | undefined {
   return RECORDED_PAGES[url];
 }
 
@@ -120,7 +124,11 @@ const ORIGINS: Record<string, string> = {
 };
 
 export function originFixture(evidence: Evidence[]): OriginsOutput {
-  return { origins: evidence.flatMap((e) => (ORIGINS[e.url] ? [{ id: e.id, origin: ORIGINS[e.url] }] : [])) };
+  const groups = new Map<string, string[]>();
+  for (const e of evidence) {
+    if (ORIGINS[e.url]) groups.set(ORIGINS[e.url], [...(groups.get(ORIGINS[e.url]) ?? []), e.id]);
+  }
+  return { origins: [...groups].map(([origin, evidence_ids]) => ({ origin, evidence_ids })) };
 }
 
 export function verdictFixture(): VerdictOutput {

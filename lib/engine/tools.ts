@@ -75,6 +75,21 @@ export interface Page {
   text: string;
 }
 
+/** What reading a page came to: the page, or why not. "dead" means the page isn't
+ * there (404, no such domain), so a url the model made up; "unreachable" means
+ * it may exist but couldn't be read just now (timeout, 403, 5xx). */
+export type PageRead = Page | "dead" | "unreachable";
+
+export function failedRead(error: unknown): "dead" | "unreachable" {
+  if (!(error instanceof Error)) return "unreachable";
+  const code = (error as NodeJS.ErrnoException).code;
+  const dead =
+    code === "ENOTFOUND" ||
+    code === "ERR_INVALID_URL" ||
+    /^HTTP (404|410)$|^Not a public web page$|block list/.test(error.message);
+  return dead ? "dead" : "unreachable";
+}
+
 /** The `read_page` tool: page text plus a published date, from the page itself else the earliest Wayback copy. */
 export async function readPage(url: string): Promise<Page> {
   if (isBlocked(new URL(url).hostname)) throw new Error("This site is on the block list");

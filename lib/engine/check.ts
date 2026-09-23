@@ -51,7 +51,7 @@ async function liveVerdict(
       "using only the Evidence given. Decide: true, false, misleading, or " +
       "unconfirmed (too few independent sources either way — never guess). " +
       "Give a one-line plain-language reason. Evidence marked quoteVerified: false couldn't be checked " +
-      "against its page; items sharing an origin count as one source.",
+      "against its page; items sharing an Origin count as one Independent source.",
     input: `Claim: ${claim}\n\nEvidence:\n${JSON.stringify(evidence)}`,
     text: { format: zodTextFormat(VerdictSchema, "verdict") },
   });

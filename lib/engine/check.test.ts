@@ -150,6 +150,7 @@ test("replay: a quote not found on its page is dropped; one whose page can't be 
   const result = await resultOf(await collect(BACHCHAN));
 
   assert.ok(!result.evidence.some((e) => e.site === "dailyroundup.example"), "invented quote dropped");
+  assert.ok(!result.evidence.some((e) => e.site === "ndtv.com"), "a link that doesn't exist (404) is dropped, not kept unverified");
   const unfetched = result.evidence.find((e) => e.site === "viralnewsnow.example");
   assert.equal(unfetched?.quoteVerified, false);
   assert.ok(result.evidence.filter((e) => e !== unfetched).every((e) => e.quoteVerified));

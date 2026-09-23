@@ -48,8 +48,11 @@ export type EvidenceCandidate = z.infer<typeof EvidenceCandidateSchema>;
 /** Structured output the agent loop ends with: its Evidence candidates. */
 export const EvidenceCandidatesSchema = z.object({ evidence: z.array(EvidenceCandidateSchema) });
 
-/** Structured output of Origin tagging (one luna call over all accepted Evidence). */
-export const OriginsSchema = z.object({ origins: z.array(z.object({ id: z.string(), origin: z.string() })) });
+/** Structured output of Origin tagging (one luna call over all accepted Evidence): Evidence grouped
+ * by Origin, so one wire story is one group whatever it's called. */
+export const OriginsSchema = z.object({
+  origins: z.array(z.object({ origin: z.string(), evidence_ids: z.array(z.string()) })),
+});
 export type OriginsOutput = z.infer<typeof OriginsSchema>;
 
 /** 1 official or primary, 2 fact-checker or major outlet, 3 other (sources.ts). */

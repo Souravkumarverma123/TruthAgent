@@ -21,7 +21,6 @@ const TIER_1 = [
   "gov",
   "rbi.org.in",
   "sansad.in",
-  "prsindia.org",
   "nseindia.com",
   "bseindia.com",
   "who.int",
@@ -50,8 +49,8 @@ const TIER_2 = [
   "snopes.com",
   "politifact.com",
   "fullfact.org",
-  "factcheck.afp.com",
   // News agencies and major outlets
+  "prsindia.org",
   "reuters.com",
   "apnews.com",
   "afp.com",

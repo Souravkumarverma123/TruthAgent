@@ -22,7 +22,7 @@ import {
   type EvidenceCandidate,
 } from "./schemas.ts";
 import { AUTHORITY_RULES, BLOCKED_DOMAINS } from "./sources.ts";
-import { readPage, type Page } from "./tools.ts";
+import { failedRead, readPage, type Page, type PageRead } from "./tools.ts";
 
 const MAX_STEPS = 8;
 const MAX_SEARCHES = 3;
@@ -31,7 +31,9 @@ const TOTAL_MS = 60_000;
  * ponytail: the 60s deadline is checked between turns, so a Check can run to
  * about 60s plus one final turn; abort mid-turn if that's too slow. */
 const TURN_MS = 25_000;
-/** Enough for the model to find a quote; keeps a turn's tokens small. */
+/** Enough for the model to find a quote; keeps a turn's tokens small.
+ * ponytail: the model sees only a page's first 6,000 chars, so it can't quote
+ * deeper; send the part around the claim's keywords if Evidence goes missing. */
 const PAGE_TEXT_CHARS = 6_000;
 
 /** One model turn, reduced to what the loop needs. Replay fixtures use this shape. */
@@ -149,8 +151,8 @@ function siteName(url: string): string {
 export interface AgentOutcome {
   candidates: EvidenceCandidate[];
   steps: AgentStep[];
-  /** Pages read during the loop, by url; null if reading failed. Saves the quote check a second fetch. */
-  pages: Map<string, Page | null>;
+  /** Pages read during the loop, by url. Saves the quote check a second fetch. */
+  pages: Map<string, PageRead>;
 }
 
 /**
@@ -164,7 +166,7 @@ export async function* agentLoop(
   const prompt = instructions(claim.claimType, claimDate);
   const deadline = Date.now() + TOTAL_MS;
   const steps = new Map<string, AgentStep>();
-  const pages = new Map<string, Page | null>();
+  const pages = new Map<string, PageRead>();
   let searches = 0;
   let input: string | ResponseInputItem[] = `Claim: ${claim.canonicalEn}`;
   let previousResponseId: string | undefined;
@@ -222,7 +224,7 @@ export async function* agentLoop(
           output = { ...page, text: page.text.slice(0, PAGE_TEXT_CHARS) };
           yield step(id, { tool: "read_page", line: `Read ${site}${dateNote(page)}`, status: "done" });
         } catch (error) {
-          pages.set(url, null);
+          pages.set(url, failedRead(error));
           output = { error: `Couldn't read this page: ${error instanceof Error ? error.message : String(error)}` };
           yield step(id, { tool: "read_page", line: `Couldn't read ${site}`, status: "failed" });
         }
