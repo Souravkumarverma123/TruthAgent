@@ -154,6 +154,8 @@ export function originFixture(evidence: Evidence[]): OriginsOutput {
 /** The Hard claim scenarios: on the RBI claim the two luna runs disagree; on this one (Bachchan's
  * Evidence, a different Claim) both are under 70% sure, and so is sol. */
 const HOSPITAL_CLAIM = /hospital/i;
+/** And on this one, one luna run's probabilities don't add up. */
+const RETIRED_CLAIM = /retired/i;
 
 /** What each Verdict run answers, by scenario, model and run (the two luna runs are 0 and 1). */
 export function verdictFixture(claim: string, model: string, run: number): VerdictOutput {
@@ -169,6 +171,16 @@ export function verdictFixture(claim: string, model: string, run: number): Verdi
       reasoning: [{ tag: "fact", text: "ANI quotes RBI: ₹500 notes remain legal tender.", evidence_ids: ["E1"] }],
       alternatives: sure(label, model === MODELS.sol ? 0.85 : 0.8),
       what_would_change: "An RBI notice withdrawing ₹500 notes.",
+    };
+  }
+  if (RETIRED_CLAIM.test(claim)) {
+    // One luna run says it's 120% sure: not a probability, so not a confident Verdict.
+    return {
+      label: "false",
+      one_line: "Nothing found reports him retiring.",
+      reasoning: [{ tag: "inference", text: "The Evidence is about a death hoax, not retirement.", evidence_ids: ["E1"] }],
+      alternatives: model === MODELS.luna && run === 1 ? [{ label: "false", probability: 1.2 }] : sure("false", 0.9),
+      what_would_change: "A statement from him or his family.",
     };
   }
   if (HOSPITAL_CLAIM.test(claim)) {

@@ -88,7 +88,7 @@ export const VerdictSchema = z.object({
   one_line: z.string(),
   reasoning: z.array(z.object({ tag: z.enum(REASONING_TAGS), text: z.string(), evidence_ids: z.array(z.string()) })),
   /** Top-k labels with probabilities; the chosen label's is how sure the model is. */
-  alternatives: z.array(z.object({ label: z.enum(VERDICT_LABELS), probability: z.number() })),
+  alternatives: z.array(z.object({ label: z.enum(VERDICT_LABELS), probability: z.number().min(0).max(1) })),
   what_would_change: z.string(),
 });
 export type VerdictOutput = z.infer<typeof VerdictSchema>;

@@ -92,10 +92,17 @@ async function liveVerdict(
   return response.output_parsed;
 }
 
-// ponytail: a Verdict whose alternatives leave out its own label counts as 0% sure, so it escalates
-// (one sol call, ~$0.03); validate the alternatives if live runs do this often.
+/** How sure a Verdict is of its own label. Alternatives that aren't a real probability set (a value
+ * outside 0–1, a repeated label, the chosen label missing, a total far from 1) count as 0% sure, so
+ * the Claim escalates rather than trusting a malformed answer. */
 function topProbability(verdict: VerdictOutput): number {
-  return verdict.alternatives.find((a) => a.label === verdict.label)?.probability ?? 0;
+  const { alternatives } = verdict;
+  const total = alternatives.reduce((sum, a) => sum + a.probability, 0);
+  const wellFormed =
+    alternatives.every((a) => a.probability >= 0 && a.probability <= 1) &&
+    new Set(alternatives.map((a) => a.label)).size === alternatives.length &&
+    Math.abs(total - 1) <= 0.05;
+  return (wellFormed && alternatives.find((a) => a.label === verdict.label)?.probability) || 0;
 }
 
 /** luna judges twice in parallel. A Hard claim (the runs disagree, or either is under 70% sure;
@@ -119,14 +126,26 @@ async function decideVerdict(
   const decided = escalated ? await run(MODELS.sol, 0) : first;
   const unsettled = escalated && topProbability(decided) < HARD_PROBABILITY;
 
+  const model = escalated ? MODELS.sol : MODELS.luna;
+  // sol's reasoning argues for a label it wasn't sure of, so it doesn't explain Not confirmed yet.
+  if (unsettled) {
+    return {
+      model,
+      verdict: {
+        label: "unconfirmed",
+        oneLine: "Two quick verdicts and a second opinion couldn't settle this, so it isn't confirmed yet.",
+        reasoning: [],
+        whatWouldChange: "More Independent sources agreeing one way.",
+        escalated,
+      },
+    };
+  }
   const ids = new Set(evidence.map((e) => e.id));
   return {
-    model: escalated ? MODELS.sol : MODELS.luna,
+    model,
     verdict: {
-      label: unsettled ? "unconfirmed" : decided.label,
-      oneLine: unsettled
-        ? "Two quick verdicts and a second opinion couldn't settle this, so it isn't confirmed yet."
-        : decided.one_line,
+      label: decided.label,
+      oneLine: decided.one_line,
       reasoning: decided.reasoning
         .filter((step) => step.evidence_ids.every((id) => ids.has(id)))
         .map((step) => ({ tag: step.tag, text: step.text, evidenceIds: step.evidence_ids })),

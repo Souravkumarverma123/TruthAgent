@@ -283,3 +283,19 @@ test("replay: a top-label probability under 0.7 also escalates, and if sol isn't
   assert.equal(result.model, "gpt-6-sol");
   assert.equal(result.verdict.label, "unconfirmed");
 });
+
+test("replay: a Not confirmed yet Verdict doesn't keep the reasoning sol gave for the label it wasn't sure of", async () => {
+  const result = await resultOf(await collect("Amitabh Bachchan admitted to hospital in critical condition, pray for him"));
+
+  // sol argued "false" at 55%; that argument no longer explains the Verdict.
+  assert.deepEqual(result.verdict.reasoning, []);
+  assert.doesNotMatch(result.verdict.whatWouldChange, /family or the hospital/);
+  assert.match(result.verdict.whatWouldChange, /Independent source/);
+});
+
+test("replay: a luna Verdict with probabilities that don't add up isn't trusted, so it escalates", async () => {
+  const events = await collect("Amitabh Bachchan has retired from films, forward this");
+
+  assert.equal(verdictEvent(events).escalated, true);
+  assert.equal((await resultOf(events)).model, "gpt-6-sol");
+});
