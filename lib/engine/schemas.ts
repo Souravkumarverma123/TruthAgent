@@ -93,6 +93,12 @@ export const VerdictSchema = z.object({
 });
 export type VerdictOutput = z.infer<typeof VerdictSchema>;
 
+/** How strongly the Evidence backs a Verdict, worked out by code (confidence.ts). */
+export interface Confidence {
+  level: "high" | "medium" | "low";
+  reason: string;
+}
+
 /** One reasoning step on the proof page. */
 export interface ReasoningStep {
   tag: (typeof REASONING_TAGS)[number];
@@ -113,8 +119,10 @@ export interface Result {
     oneLine: string;
     reasoning: ReasoningStep[];
     whatWouldChange: string;
-    /** A Hard claim: the luna Verdicts disagreed or weren't sure, so sol decided. */
+    /** A Hard claim: the luna Verdicts disagreed or weren't sure, or Independent sources disagreed, so sol decided. */
     escalated: boolean;
+    /** Worked out by code from the Evidence (confidence.ts). */
+    confidence: Confidence;
   };
   evidence: Evidence[];
   /** Distinct Origins among the Evidence (CONTEXT.md "Independent source"). */

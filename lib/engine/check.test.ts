@@ -191,7 +191,10 @@ test("replay: with no Independent source either way the Verdict is Not confirmed
   const verdict = events.find((e) => e.type === "verdict");
 
   assert.equal(verdict?.label, "unconfirmed");
-  assert.equal((await resultOf(events)).verdict.label, "unconfirmed");
+  const result = await resultOf(events);
+  assert.equal(result.verdict.label, "unconfirmed");
+  assert.equal(result.verdict.confidence.level, "low");
+  assert.match(result.verdict.confidence.reason, /No Independent source/);
 });
 
 test("replay: a quote whose page writes it with a named HTML entity is kept", async () => {
@@ -240,7 +243,6 @@ test("replay: the proof page's Verdict has tagged reasoning steps citing Evidenc
   }
   assert.ok(result.verdict.reasoning.some((s) => s.evidenceIds.length > 0));
   assert.ok(result.verdict.whatWouldChange.length > 0);
-  assert.equal(result.model, "gpt-6-luna");
 });
 
 test("replay: a reasoning step citing an unknown Evidence id is dropped", async () => {
@@ -257,8 +259,12 @@ function verdictEvent(events: CheckEvent[]) {
   return verdict;
 }
 
+const WITHDRAWN = "RBI has withdrawn ₹2000 notes from circulation";
+
 test("replay: an easy claim never escalates, and a Verdict decided by code names no model", async () => {
-  assert.equal(verdictEvent(await collect(BACHCHAN)).escalated, false);
+  const easy = await collect(WITHDRAWN);
+  assert.equal(verdictEvent(easy).escalated, false);
+  assert.equal((await resultOf(easy)).model, "gpt-6-luna");
 
   const byCode = await collect(LAPTOP);
   assert.equal(verdictEvent(byCode).escalated, false);
@@ -298,4 +304,30 @@ test("replay: a luna Verdict with probabilities that don't add up isn't trusted,
 
   assert.equal(verdictEvent(events).escalated, true);
   assert.equal((await resultOf(events)).model, "gpt-6-sol");
+});
+
+test("replay: Independent sources on both sides make it a Hard claim, so sol decides", async () => {
+  // A hoax post says he died, Wikipedia says he's alive; the two luna runs agree and are sure.
+  const events = await collect(BACHCHAN);
+
+  assert.equal(verdictEvent(events).escalated, true);
+  assert.equal((await resultOf(events)).model, "gpt-6-sol");
+});
+
+test("replay: Confidence is worked out by code from the Evidence and shown with its reason in words", async () => {
+  const strong = (await resultOf(await collect(WITHDRAWN))).verdict.confidence;
+  assert.deepEqual(strong, { level: "high", reason: "2 Independent sources agree, 1 of them official." });
+
+  // One of two Independent sources agrees, and it's a tier-3 site.
+  const mixed = (await resultOf(await collect(BACHCHAN))).verdict.confidence;
+  assert.deepEqual(mixed, { level: "medium", reason: "1 of 2 Independent sources agree." });
+});
+
+test("replay: a Verdict sol couldn't settle has Low Confidence, saying how the sources split", async () => {
+  const result = await resultOf(await collect("Amitabh Bachchan admitted to hospital in critical condition, pray for him"));
+
+  assert.deepEqual(result.verdict.confidence, {
+    level: "low",
+    reason: "Independent sources: 0 for, 1 against. Not enough to settle it.",
+  });
 });
