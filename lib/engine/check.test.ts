@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { replayWorld, type Scenario, type World } from "./boundary.ts";
-import { check } from "./check.ts";
+import { check, type CheckOptions } from "./check.ts";
 import * as scenarios from "./scenarios.ts";
 import type { CheckEvent } from "./schemas.ts";
 
 /** Which world each Check ran in, so its saved Result is read back from the same one. */
 const worlds = new WeakMap<CheckEvent[], World>();
 
-async function collect(message: string, scenario: Scenario = {}): Promise<CheckEvent[]> {
+async function collect(message: string, scenario: Scenario = {}, options: CheckOptions = {}): Promise<CheckEvent[]> {
   const world = replayWorld(scenario);
   const events: CheckEvent[] = [];
-  for await (const event of check(message, { world })) events.push(event);
+  for await (const event of check(message, { ...options, world })) events.push(event);
   worlds.set(events, world);
   return events;
 }
@@ -31,7 +31,7 @@ test("replay: a Check streams understood, agent steps, evidence, verdict, done a
 
   const understood = events[0];
   if (understood.type === "understood") {
-    assert.match(understood.claim.original, /Amitabh Bachchan/);
+    assert.match(understood.claim!.original, /Amitabh Bachchan/);
   }
 
   const verdict = events.at(-2)!;
@@ -202,9 +202,9 @@ test("replay: with no Independent source either way the Verdict is Not confirmed
 
   assert.equal(verdict?.label, "unconfirmed");
   const result = await resultOf(events);
-  assert.equal(result.verdict.label, "unconfirmed");
-  assert.equal(result.verdict.confidence.level, "low");
-  assert.match(result.verdict.confidence.reason, /No Independent source/);
+  assert.equal(result.verdict!.label, "unconfirmed");
+  assert.equal(result.verdict!.confidence.level, "low");
+  assert.match(result.verdict!.confidence.reason, /No Independent source/);
 });
 
 test("replay: a quote whose page writes it with a named HTML entity is kept", async () => {
@@ -245,22 +245,22 @@ test("replay: the proof page's Verdict has tagged reasoning steps citing Evidenc
   const result = await resultOf(events);
   const ids = new Set(result.evidence.map((e) => e.id));
 
-  assert.ok(result.verdict.reasoning.length > 0);
-  for (const step of result.verdict.reasoning) {
+  assert.ok(result.verdict!.reasoning.length > 0);
+  for (const step of result.verdict!.reasoning) {
     assert.match(step.tag, /^(fact|inference|assumption|hypothesis)$/);
     assert.ok(step.text.length > 0);
     assert.ok(step.evidenceIds.every((id) => ids.has(id)));
   }
-  assert.ok(result.verdict.reasoning.some((s) => s.evidenceIds.length > 0));
-  assert.ok(result.verdict.whatWouldChange.length > 0);
+  assert.ok(result.verdict!.reasoning.some((s) => s.evidenceIds.length > 0));
+  assert.ok(result.verdict!.whatWouldChange.length > 0);
 });
 
 test("replay: a reasoning step citing an unknown Evidence id is dropped", async () => {
   const result = await resultOf(await collect(BACHCHAN, scenarios.BACHCHAN));
 
   // The recorded Verdict has a step citing E99, which this Check never found.
-  assert.ok(!result.verdict.reasoning.some((s) => /hospital statement/.test(s.text)));
-  assert.ok(result.verdict.reasoning.some((s) => /unsourced post/.test(s.text)), "valid steps are kept");
+  assert.ok(!result.verdict!.reasoning.some((s) => /hospital statement/.test(s.text)));
+  assert.ok(result.verdict!.reasoning.some((s) => /unsourced post/.test(s.text)), "valid steps are kept");
 });
 
 function verdictEvent(events: CheckEvent[]) {
@@ -287,7 +287,7 @@ test("replay: two disagreeing luna Verdicts trigger one sol Verdict, and the ver
   assert.equal(verdictEvent(events).escalated, true);
   const result = await resultOf(events);
   assert.equal(result.model, "gpt-6-sol");
-  assert.equal(result.verdict.label, "false");
+  assert.equal(result.verdict!.label, "false");
 });
 
 test("replay: a top-label probability under 0.7 also escalates, and if sol isn't sure either it's Not confirmed yet", async () => {
@@ -297,16 +297,16 @@ test("replay: a top-label probability under 0.7 also escalates, and if sol isn't
   assert.equal(verdictEvent(events).label, "unconfirmed");
   const result = await resultOf(events);
   assert.equal(result.model, "gpt-6-sol");
-  assert.equal(result.verdict.label, "unconfirmed");
+  assert.equal(result.verdict!.label, "unconfirmed");
 });
 
 test("replay: a Not confirmed yet Verdict doesn't keep the reasoning sol gave for the label it wasn't sure of", async () => {
   const result = await resultOf(await collect("Amitabh Bachchan admitted to hospital in critical condition, pray for him", scenarios.HOSPITAL));
 
   // sol argued "false" at 55%; that argument no longer explains the Verdict.
-  assert.deepEqual(result.verdict.reasoning, []);
-  assert.doesNotMatch(result.verdict.whatWouldChange, /family or the hospital/);
-  assert.match(result.verdict.whatWouldChange, /Independent source/);
+  assert.deepEqual(result.verdict!.reasoning, []);
+  assert.doesNotMatch(result.verdict!.whatWouldChange, /family or the hospital/);
+  assert.match(result.verdict!.whatWouldChange, /Independent source/);
 });
 
 test("replay: a luna Verdict with probabilities that don't add up isn't trusted, so it escalates", async () => {
@@ -325,18 +325,18 @@ test("replay: Independent sources on both sides make it a Hard claim, so sol dec
 });
 
 test("replay: Confidence is worked out by code from the Evidence and shown with its reason in words", async () => {
-  const strong = (await resultOf(await collect(WITHDRAWN, scenarios.WITHDRAWN_2000))).verdict.confidence;
+  const strong = (await resultOf(await collect(WITHDRAWN, scenarios.WITHDRAWN_2000))).verdict!.confidence;
   assert.deepEqual(strong, { level: "high", reason: "2 Independent sources agree, 1 of them official." });
 
   // One of two Independent sources agrees, and it's a tier-3 site.
-  const mixed = (await resultOf(await collect(BACHCHAN, scenarios.BACHCHAN))).verdict.confidence;
+  const mixed = (await resultOf(await collect(BACHCHAN, scenarios.BACHCHAN))).verdict!.confidence;
   assert.deepEqual(mixed, { level: "medium", reason: "1 of 2 Independent sources agree." });
 });
 
 test("replay: a Verdict sol couldn't settle has Low Confidence, saying how the sources split", async () => {
   const result = await resultOf(await collect("Amitabh Bachchan admitted to hospital in critical condition, pray for him", scenarios.HOSPITAL));
 
-  assert.deepEqual(result.verdict.confidence, {
+  assert.deepEqual(result.verdict!.confidence, {
     level: "low",
     reason: "Independent sources: 0 for, 1 against. Not enough to settle it.",
   });
@@ -358,4 +358,81 @@ test("replay: a Scenario with no page for a url fails the Check, naming the url,
   const last = events.at(-1)!;
   assert.equal(last.type, "error");
   assert.match(last.type === "error" ? last.message : "", /viralnewsnow\.example/);
+});
+
+const TRAFFIC_LIGHTS = "Europe heatwave: it's so hot the traffic lights are melting! Forward to all";
+const PHONE_EXIF = { taken: "2025-06-19T21:14:00", camera: "Apple iPhone 13", place: { lat: 52.52, lon: 13.405 } };
+
+test("replay: a real photo carrying a False story shows 'photo is real' in the Photo check and False in the Verdict", async () => {
+  const events = await collect(TRAFFIC_LIGHTS, scenarios.TRAFFIC_LIGHTS, {
+    image: { bytes: scenarios.PHOTO, exif: PHONE_EXIF },
+  });
+  const result = await resultOf(events);
+
+  assert.equal(verdictEvent(events).label, "false");
+  assert.equal(result.verdict?.label, "false");
+  assert.equal(result.photoCheck?.real, "yes");
+});
+
+test("replay: the Photo check shows the earliest copy found (link, date), the EXIF details and the AI hint", async () => {
+  const result = await resultOf(
+    await collect(TRAFFIC_LIGHTS, scenarios.TRAFFIC_LIGHTS, { image: { bytes: scenarios.PHOTO, exif: PHONE_EXIF } }),
+  );
+
+  assert.deepEqual(result.photoCheck?.earliest, {
+    url: "https://www.bz-berlin.de/berlin/ampel-nach-autobrand-geschmolzen",
+    site: "bz-berlin.de",
+    date: "2025-06-20",
+  });
+  assert.deepEqual(result.photoCheck?.exif, PHONE_EXIF);
+  assert.equal(result.photoCheck?.aiGenerated, 0.02);
+});
+
+test("replay: the Photo check streams its steps live, before the agent's", async () => {
+  const events = await collect(TRAFFIC_LIGHTS, scenarios.TRAFFIC_LIGHTS, { image: { bytes: scenarios.PHOTO } });
+  const all = steps(events);
+  const photo = all.filter((s) => s.tool === "reverse_image");
+
+  assert.equal(photo[0].status, "running");
+  assert.match(photo[0].line, /where this photo appeared/);
+  assert.equal(photo.at(-1)!.status, "done");
+  assert.ok(all.indexOf(photo.at(-1)!) < all.findIndex((s) => s.tool === "web_search"));
+});
+
+test("replay: an image with no text yields a Photo check and no Claim", async () => {
+  const events = await collect("", scenarios.PHOTO_ONLY, { image: { bytes: scenarios.PHOTO } });
+  const result = await resultOf(events);
+
+  assert.ok(!events.some((e) => e.type === "verdict"));
+  assert.equal(result.mainClaim, null);
+  assert.equal(result.verdict, null);
+  assert.equal(result.photoCheck?.real, "yes");
+});
+
+test("replay: a screenshot of a forward checks the text inside it", async () => {
+  const events = await collect("", scenarios.SCREENSHOT, { image: { bytes: scenarios.PHOTO } });
+  const understood = events.find((e) => e.type === "understood");
+
+  assert.match(understood?.type === "understood" ? (understood.claim?.original ?? "") : "", /₹500 notes/);
+  const result = await resultOf(events);
+  assert.match(result.message.imageText ?? "", /BREAKING/);
+  assert.equal(result.verdict?.label, "false");
+  assert.equal(result.photoCheck?.real, "unknown");
+});
+
+test("replay: a file that isn't a PNG, JPEG or WEBP is rejected with a friendly error event", async () => {
+  const gif = new TextEncoder().encode("GIF89a…");
+  const events = await collect("some forward", {}, { image: { bytes: gif } });
+
+  assert.equal(events.length, 1);
+  assert.match(events[0].type === "error" ? events[0].message : "", /PNG, JPEG or WEBP/);
+});
+
+test("replay: a photo over 5 MB is rejected with a friendly error event", async () => {
+  const big = new Uint8Array(5 * 1024 * 1024 + 1);
+  big.set(scenarios.PHOTO);
+  const events = await collect("some forward", {}, { image: { bytes: big } });
+
+  assert.equal(events.length, 1);
+  assert.match(events[0].type === "error" ? events[0].message : "", /5 MB/);
 });

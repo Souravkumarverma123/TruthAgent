@@ -26,7 +26,7 @@ Next.js API route (one serverless function, streams progress back as SSE)
 /check/[id]  shareable proof page (the link people forward back to the group)
 ```
 
-No other servers. External calls: OpenAI, Google (Fact Check + Vision), Upstash Redis,
+No other servers. External calls: OpenAI, Google Fact Check, SerpApi (Google Lens), Upstash Redis,
 optionally Sightengine.
 
 ## 2. Stack and why
@@ -76,7 +76,7 @@ luna. Put IDs in one `MODELS` object so a swap is a one-line change.
 |---|---|---|---|
 | OpenAI | everything AI | ~₹3–5 per new claim (budget $4) | `OPENAI_API_KEY` |
 | Google Fact Check Tools | "already fact-checked?" (a lead, never evidence) | free | `GOOGLE_API_KEY` |
-| Google Cloud Vision `WEB_DETECTION` | reverse image search | 1,000/month free | same `GOOGLE_API_KEY` (restrict key to these 2 APIs) |
+| SerpApi Google Lens (`type=exact_matches`) | reverse image search | 250 searches/month free, no card | `SERPAPI_API_KEY` |
 | Upstash Redis | cache, results, lock, rate limit | free tier | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
 | Sightengine (optional) | "AI-generated?" signal | ~100/day free | `SIGHTENGINE_USER`, `SIGHTENGINE_SECRET` |
 | Wayback CDX | earliest archived copy of a page | free, no key | — |
@@ -106,7 +106,7 @@ we run function calls, send results back (`previous_response_id`), repeat. **Cap
 |---|---|---|
 | `factcheck_lookup(query, lang)` | existing fact-checks with rating + review date | Google Fact Check API |
 | `web_search` (hosted) | search, with `blocked_domains` (mediamass.net etc.), `user_location: IN` | OpenAI |
-| `reverse_image()` | pages where this image appears, best-guess labels | Google Vision |
+| `reverse_image()` | pages where this image appears (runs in the Photo check, not chosen by the model) | SerpApi Google Lens |
 | `read_page(url)` | page text + published date (`article:published_time`, else Wayback earliest) | `fetch` |
 
 System prompt contains: today's date, claim date, the authority rule for this claim type
@@ -156,6 +156,21 @@ if no independent domain supports or contradicts → "Not confirmed yet", whatev
 ```
 Shown as High / Medium / Low + "why" in words ("3 independent sources incl. RBI agree").
 Weights are a guess, tuned against the test set. This function gets one small runnable check.
+
+### Photo check (decided 2026-09-24)
+Runs in code for any Message with a photo, before the agent loop, streamed as step lines. Not a
+model call, and separate from the Verdict: a real photo can carry a False Claim.
+- **Reverse image search:** the photo is re-encoded (≤1024px JPEG, under SerpApi's 500 KB limit, EXIF
+  dropped so GPS never leaves the server), uploaded to SerpApi's Image API (`image_id`, lasts 10 min),
+  then searched with `engine=google_lens&type=exact_matches`. Results carry no dates.
+- **Earliest copy:** `read_page` on the top 3 matches in parallel (page date, else earliest Wayback);
+  the earliest dated one wins, worded "earliest copy we found".
+- **EXIF** (date, camera, GPS) is read in the browser *before* resizing, since canvas resizing drops it,
+  and sent with the photo; the endpoint validates it. Supporting clue only.
+- **Sightengine** `genai` score: a hint, only with `SIGHTENGINE_USER`/`SECRET` set.
+- **Real?** yes = copies found and the AI score isn't ≥50% · no = no copy found and AI score ≥90% ·
+  otherwise unknown. Never a bare "FAKE".
+- Google Vision was dropped: it needs billing on the Google Cloud project, which the team isn't paying.
 
 ### ⑨ Origin trace ("Web Intelligence")
 Earliest dated page among evidence + reverse-image matches (`read_page` for dates) + Wayback's

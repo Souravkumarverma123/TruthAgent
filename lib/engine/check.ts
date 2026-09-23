@@ -2,18 +2,22 @@
 // agent loop (agent.ts) → Evidence processing (evidence.ts) → Verdict (luna ×2, sol for Hard claims) → save. See docs/architecture.md §5
 // for the full pipeline this tracer bullet is the first slice of.
 import type OpenAI from "openai";
+import type { ResponseInputContent } from "openai/resources/responses/responses";
 import { zodTextFormat } from "openai/helpers/zod";
 import { agentLoop } from "./agent.ts";
 import { defaultWorld, ReplayGap, type World } from "./boundary.ts";
 import { confidenceOf, originsBySide } from "./confidence.ts";
 import { processEvidence } from "./evidence.ts";
 import { MODELS } from "./models.ts";
+import { photoCheck } from "./photo.ts";
 import {
+  MAX_IMAGE_BYTES,
   MAX_MESSAGE_LENGTH,
   UnderstandSchema,
   VerdictSchema,
   type CheckEvent,
   type Evidence,
+  type MessageImage,
   type Result,
   type Understood,
   type VerdictOutput,
@@ -24,16 +28,36 @@ export interface CheckOptions {
   claimDate?: string;
   /** The outside world. Tests pass a replay world; otherwise the one OUTSIDE_WORLD_MODE picks. */
   world?: World;
+  /** The Message's photo or screenshot, if any. */
+  image?: MessageImage;
 }
 
-async function liveUnderstand(client: OpenAI, message: string): Promise<Understood> {
+/** The file type, from the file's own first bytes rather than what the upload claims. */
+function imageType(bytes: Uint8Array): "image/png" | "image/jpeg" | "image/webp" | null {
+  const ascii = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to));
+  if (ascii(1, 4) === "PNG" && bytes[0] === 0x89) return "image/png";
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "image/webp";
+  return null;
+}
+
+async function liveUnderstand(client: OpenAI, message: string, image: MessageImage | undefined): Promise<Understood> {
+  const content: ResponseInputContent[] = [{ type: "input_text", text: message || "(No text, only the image.)" }];
+  if (image) {
+    const dataUrl = `data:${imageType(image.bytes)};base64,${Buffer.from(image.bytes).toString("base64")}`;
+    content.push({ type: "input_image", image_url: dataUrl, detail: "auto" });
+  }
   const response = await client.responses.parse({
     model: MODELS.luna,
     instructions:
       "Read the forwarded message and find the one Claim it's really about " +
       "(the Main claim). Give it back as a short original excerpt, a " +
-      "canonical English sentence suitable for a web search, and its Claim type.",
-    input: message,
+      "canonical English sentence suitable for a web search, and its Claim type. " +
+      "The message may come with a photo or a screenshot: give the text written in it as image_text, " +
+      "and what it shows in one plain sentence as image_description. A Claim can come from the typed text, " +
+      "the text in the image, or both. If there is nothing checkable (e.g. a photo with no text or caption), " +
+      "main_claim is null: never make up a Claim from what a photo shows.",
+    input: [{ role: "user", content }],
     text: { format: zodTextFormat(UnderstandSchema, "understand") },
   });
   if (!response.output_parsed) throw new Error("Understand step returned no output");
@@ -43,7 +67,7 @@ async function liveUnderstand(client: OpenAI, message: string): Promise<Understo
 /** No Origin for or against the Claim means nothing independent backs it, whether the Evidence is
  * only Fact-checks or Origin tagging failed. The Verdict is then "Not confirmed yet" whatever the
  * model says (CONTEXT.md "Not confirmed yet"). */
-const NOT_CONFIRMED: Result["verdict"] = {
+const NOT_CONFIRMED: NonNullable<Result["verdict"]> = {
   label: "unconfirmed",
   oneLine: "No independent source has confirmed or denied this yet.",
   reasoning: [],
@@ -117,7 +141,7 @@ async function decideVerdict(
   evidence: Evidence[],
   independentSources: number,
   world: World,
-): Promise<{ verdict: Result["verdict"]; model: string }> {
+): Promise<{ verdict: NonNullable<Result["verdict"]>; model: string }> {
   const run = (model: keyof typeof MODELS, index: number) =>
     world.openai({ step: "verdict", model, run: index }, (client) =>
       liveVerdict(client, model, claim, claimDate, evidence, independentSources),
@@ -176,38 +200,61 @@ export async function* check(message: string, options: CheckOptions = {}): Async
     return;
   }
 
+  const { image } = options;
+  if (image && !imageType(image.bytes)) {
+    yield { type: "error", message: "That file isn't a photo we can read — please add a PNG, JPEG or WEBP image." };
+    return;
+  }
+  if (image && image.bytes.length > MAX_IMAGE_BYTES) {
+    yield { type: "error", message: "That photo is over 5 MB — please add a smaller one." };
+    return;
+  }
+
   const claimDate = options.claimDate ?? new Date().toISOString().slice(0, 10);
   const world = options.world ?? defaultWorld(message);
 
   try {
-    const understood = await world.openai({ step: "understand" }, (client) => liveUnderstand(client, message));
+    const understood = await world.openai({ step: "understand" }, (client) => liveUnderstand(client, message, image));
     const claim = understood.main_claim;
-    yield { type: "understood", claim: { original: claim.original, canonicalEn: claim.canonical_en } };
+    const mainClaim = claim && { original: claim.original, canonicalEn: claim.canonical_en };
+    yield { type: "understood", claim: mainClaim };
 
-    const { candidates, steps, pages } = yield* agentLoop(
-      { canonicalEn: claim.canonical_en, claimType: claim.claim_type },
-      claimDate,
-      world,
-    );
-    const { evidence, independentSources } = yield* processEvidence(candidates, pages, world);
+    // ponytail: the Photo check runs before the agent, adding its ~10s to a Check with a photo;
+    // run the two side by side if that feels slow.
+    const photo = image ? yield* photoCheck(world, image, understood.image_description) : null;
 
-    // Decided by code when nothing independent backs either side, so no model call is spent on it.
-    const { verdict, model } =
-      independentSources === 0
-        ? { verdict: NOT_CONFIRMED, model: null }
-        : await decideVerdict(claim.canonical_en, claimDate, evidence, independentSources, world);
-    yield { type: "verdict", label: verdict.label, oneLine: verdict.oneLine, escalated: verdict.escalated };
+    let checked: Pick<Result, "model" | "verdict" | "evidence" | "independentSources" | "steps"> = {
+      model: null,
+      verdict: null,
+      evidence: [],
+      independentSources: 0,
+      steps: [],
+    };
+    if (claim) {
+      const { candidates, steps, pages } = yield* agentLoop(
+        { canonicalEn: claim.canonical_en, claimType: claim.claim_type },
+        claimDate,
+        world,
+      );
+      const { evidence, independentSources } = yield* processEvidence(candidates, pages, world);
+
+      // Decided by code when nothing independent backs either side, so no model call is spent on it.
+      const { verdict, model } =
+        independentSources === 0
+          ? { verdict: NOT_CONFIRMED, model: null }
+          : await decideVerdict(claim.canonical_en, claimDate, evidence, independentSources, world);
+      yield { type: "verdict", label: verdict.label, oneLine: verdict.oneLine, escalated: verdict.escalated };
+      checked = { model, verdict, evidence, independentSources, steps };
+    }
 
     const result: Result = {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
-      model,
-      message: { text: message },
-      mainClaim: { original: claim.original, canonicalEn: claim.canonical_en },
-      verdict,
-      evidence,
-      independentSources,
-      steps,
+      message: { text: message, imageText: understood.image_text },
+      mainClaim,
+      ...checked,
+      steps: [...(photo?.steps ?? []), ...checked.steps],
+      photoCheck: photo?.photoCheck ?? null,
     };
     await world.saveResult(result);
     yield { type: "done", id: result.id };

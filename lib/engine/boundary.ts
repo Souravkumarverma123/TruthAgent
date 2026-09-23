@@ -1,4 +1,4 @@
-// The outside-world boundary: every call to OpenAI, Redis or a web page goes through a World.
+// The outside-world boundary: every call to OpenAI, SerpApi, Sightengine, Redis or a web page goes through a World.
 // Two adapters, per AGENTS.md: `liveWorld` (real calls, costs money) and `replayWorld(scenario)`
 // (whole answers from a Scenario, $0, no network). Replay is the default in dev and tests.
 import { Redis } from "@upstash/redis";
@@ -9,8 +9,9 @@ import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 import { join } from "node:path";
 import OpenAI from "openai";
+import sharp from "sharp";
 import type { MODELS } from "./models.ts";
-import type { AgentTurn, OriginsOutput, Result, Understood, VerdictOutput } from "./schemas.ts";
+import type { AgentTurn, ImageMatch, OriginsOutput, Result, Understood, VerdictOutput } from "./schemas.ts";
 
 export function outsideWorldMode(): "live" | "replay" {
   return process.env.OUTSIDE_WORLD_MODE === "live" ? "live" : "replay";
@@ -36,6 +37,10 @@ export interface World {
   openai<A extends Ask>(ask: A, live: (client: OpenAI) => Promise<Answers[A["step"]]>): Promise<Answers[A["step"]]>;
   /** A web page (or Wayback API) as text; an HTTP error status throws `HTTP <status>`. */
   fetchText(url: string, signal: AbortSignal): Promise<string>;
+  /** Pages carrying this exact photo, best match first (SerpApi Google Lens). No dates: those come from reading the pages. */
+  reverseImage(image: Uint8Array, signal: AbortSignal): Promise<ImageMatch[]>;
+  /** Sightengine's 0–1 "AI-generated" score; null when no Sightengine key is set. */
+  aiGenerated(image: Uint8Array, signal: AbortSignal): Promise<number | null>;
   saveResult(result: Result): Promise<void>;
   getResult(id: string): Promise<Result | null>;
 }
@@ -53,6 +58,9 @@ export interface Scenario {
   /** url → body, or an HTTP error status. Wayback lookups are urls too (`waybackCdxUrl`). */
   pages?: Record<string, string | number>;
   origins?: OriginsOutput;
+  /** Reverse image search on the Message's photo. */
+  reverseImage?: ImageMatch[];
+  aiGenerated?: number | null;
   verdicts?: { luna?: [VerdictOutput, VerdictOutput]; sol?: VerdictOutput };
 }
 
@@ -111,6 +119,14 @@ export function replayWorld(scenario: Scenario, results: ResultStore = memoryRes
       if (page === undefined) throw new ReplayGap(url);
       if (typeof page === "number") throw new Error(`HTTP ${page}`);
       return page;
+    },
+    async reverseImage() {
+      if (scenario.reverseImage === undefined) throw new ReplayGap("reverse image search");
+      return scenario.reverseImage;
+    },
+    async aiGenerated() {
+      if (scenario.aiGenerated === undefined) throw new ReplayGap("the AI-generated score");
+      return scenario.aiGenerated;
     },
     ...results,
   };
@@ -254,6 +270,58 @@ async function fetchLive(url: string, signal: AbortSignal): Promise<string> {
   throw new Error("Too many redirects");
 }
 
+async function json(response: Response): Promise<Record<string, unknown>> {
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok && !body.error) throw new Error(`HTTP ${response.status}`);
+  return body;
+}
+
+/** SerpApi's Image API takes at most 500 KB. Re-encoding also drops the file's EXIF, so the
+ * phone's GPS never leaves our server. */
+async function forSerpApi(image: Uint8Array): Promise<Blob> {
+  const jpeg = await sharp(image).resize(1024, 1024, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+  return new Blob([new Uint8Array(jpeg)], { type: "image/jpeg" });
+}
+
+/** An uploaded photo has no public URL, so it goes up to SerpApi's Image API first (the id lasts
+ * 10 minutes), then Google Lens `exact_matches` searches by that id. */
+async function reverseImageLive(image: Uint8Array, signal: AbortSignal): Promise<ImageMatch[]> {
+  const key = process.env.SERPAPI_API_KEY;
+  if (!key) throw new Error("SERPAPI_API_KEY is not set");
+  const form = new FormData();
+  form.append("image", await forSerpApi(image), "photo.jpg");
+  form.append("api_key", key);
+  const upload = await json(await fetch("https://serpapi.com/image", { method: "POST", body: form, signal }));
+  if (typeof upload.image_id !== "string") throw new Error(String(upload.error ?? "SerpApi upload failed"));
+
+  const params = new URLSearchParams({ engine: "google_lens", type: "exact_matches", image_id: upload.image_id, api_key: key });
+  const search = await json(await fetch(`https://serpapi.com/search.json?${params}`, { signal }));
+  // SerpApi reports "no results" as an error.
+  if (typeof search.error === "string") {
+    if (/hasn't returned any results/i.test(search.error)) return [];
+    throw new Error(search.error);
+  }
+  const matches = Array.isArray(search.exact_matches) ? search.exact_matches : [];
+  return matches
+    .filter((m): m is { link: string; title?: string; source?: string } => typeof m?.link === "string")
+    .map((m) => ({ url: m.link, title: String(m.title ?? ""), source: String(m.source ?? "") }));
+}
+
+async function aiGeneratedLive(image: Uint8Array, signal: AbortSignal): Promise<number | null> {
+  const user = process.env.SIGHTENGINE_USER;
+  const secret = process.env.SIGHTENGINE_SECRET;
+  if (!user || !secret) return null;
+  const form = new FormData();
+  form.append("media", new Blob([new Uint8Array(image)]), "photo");
+  form.append("models", "genai");
+  form.append("api_user", user);
+  form.append("api_secret", secret);
+  const body = await json(await fetch("https://api.sightengine.com/1.0/check.json", { method: "POST", body: form, signal }));
+  const score = (body.type as { ai_generated?: unknown } | undefined)?.ai_generated;
+  if (body.status !== "success" || typeof score !== "number") throw new Error("Sightengine gave no score");
+  return score;
+}
+
 const RESULT_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days, per docs/architecture.md §6
 
 let redisClient: Redis | undefined;
@@ -307,6 +375,8 @@ const fileResults: ResultStore = {
 export const liveWorld: World = {
   openai: (_ask, live) => live(client()),
   fetchText: fetchLive,
+  reverseImage: reverseImageLive,
+  aiGenerated: aiGeneratedLive,
   ...redisResults,
 };
 
