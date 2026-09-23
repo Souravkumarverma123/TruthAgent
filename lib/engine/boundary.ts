@@ -270,15 +270,17 @@ async function fetchLive(url: string, signal: AbortSignal): Promise<string> {
   throw new Error("Too many redirects");
 }
 
-async function json(response: Response): Promise<Record<string, unknown>> {
+/** A photo service's JSON answer. These services put their own reason in `error`, so an HTTP error
+ * status only throws when the body has none. */
+async function serviceJson(response: Response): Promise<Record<string, unknown>> {
   const body = await response.json().catch(() => ({}));
   if (!response.ok && !body.error) throw new Error(`HTTP ${response.status}`);
   return body;
 }
 
-/** SerpApi's Image API takes at most 500 KB. Re-encoding also drops the file's EXIF, so the
- * phone's GPS never leaves our server. */
-async function forSerpApi(image: Uint8Array): Promise<Blob> {
+/** What photo services get: small enough for SerpApi's 500 KB upload limit, and re-encoded so the
+ * file's EXIF (the phone's GPS) isn't passed on. */
+async function outgoingPhoto(image: Uint8Array): Promise<Blob> {
   const jpeg = await sharp(image).resize(1024, 1024, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
   return new Blob([new Uint8Array(jpeg)], { type: "image/jpeg" });
 }
@@ -289,13 +291,13 @@ async function reverseImageLive(image: Uint8Array, signal: AbortSignal): Promise
   const key = process.env.SERPAPI_API_KEY;
   if (!key) throw new Error("SERPAPI_API_KEY is not set");
   const form = new FormData();
-  form.append("image", await forSerpApi(image), "photo.jpg");
+  form.append("image", await outgoingPhoto(image), "photo.jpg");
   form.append("api_key", key);
-  const upload = await json(await fetch("https://serpapi.com/image", { method: "POST", body: form, signal }));
+  const upload = await serviceJson(await fetch("https://serpapi.com/image", { method: "POST", body: form, signal }));
   if (typeof upload.image_id !== "string") throw new Error(String(upload.error ?? "SerpApi upload failed"));
 
   const params = new URLSearchParams({ engine: "google_lens", type: "exact_matches", image_id: upload.image_id, api_key: key });
-  const search = await json(await fetch(`https://serpapi.com/search.json?${params}`, { signal }));
+  const search = await serviceJson(await fetch(`https://serpapi.com/search.json?${params}`, { signal }));
   // SerpApi reports "no results" as an error.
   if (typeof search.error === "string") {
     if (/hasn't returned any results/i.test(search.error)) return [];
@@ -312,11 +314,11 @@ async function aiGeneratedLive(image: Uint8Array, signal: AbortSignal): Promise<
   const secret = process.env.SIGHTENGINE_SECRET;
   if (!user || !secret) return null;
   const form = new FormData();
-  form.append("media", new Blob([new Uint8Array(image)]), "photo");
+  form.append("media", await outgoingPhoto(image), "photo.jpg");
   form.append("models", "genai");
   form.append("api_user", user);
   form.append("api_secret", secret);
-  const body = await json(await fetch("https://api.sightengine.com/1.0/check.json", { method: "POST", body: form, signal }));
+  const body = await serviceJson(await fetch("https://api.sightengine.com/1.0/check.json", { method: "POST", body: form, signal }));
   const score = (body.type as { ai_generated?: unknown } | undefined)?.ai_generated;
   if (body.status !== "success" || typeof score !== "number") throw new Error("Sightengine gave no score");
   return score;

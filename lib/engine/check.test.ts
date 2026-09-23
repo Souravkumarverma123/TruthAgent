@@ -436,3 +436,19 @@ test("replay: a photo over 5 MB is rejected with a friendly error event", async 
   assert.equal(events.length, 1);
   assert.match(events[0].type === "error" ? events[0].message : "", /5 MB/);
 });
+
+test("replay: copies of a photo with none dated before the Claim date don't make it real", async () => {
+  // Received on 1 June 2025; the earliest copy found is from 20 June 2025.
+  const events = await collect(TRAFFIC_LIGHTS, scenarios.TRAFFIC_LIGHTS, { image: { bytes: scenarios.PHOTO }, claimDate: "2025-06-01" });
+
+  assert.equal((await resultOf(events)).photoCheck?.real, "unknown");
+});
+
+test("replay: a high AI-generated score is a hint, never a 'not real' on its own", async () => {
+  const result = await resultOf(
+    await collect("", { ...scenarios.PHOTO_ONLY, reverseImage: [], aiGenerated: 0.97 }, { image: { bytes: scenarios.PHOTO } }),
+  );
+
+  assert.equal(result.photoCheck?.real, "unknown");
+  assert.equal(result.photoCheck?.aiGenerated, 0.97);
+});

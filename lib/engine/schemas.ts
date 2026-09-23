@@ -8,6 +8,9 @@ export const MAX_MESSAGE_LENGTH = 2000;
 
 /** One photo per Message, as sent (the input page resizes it to about 1600px first). */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+export type ImageType = (typeof IMAGE_TYPES)[number];
+export const NOT_AN_IMAGE = "That file isn't a photo we can read — please add a PNG, JPEG or WEBP image.";
 
 /** CONTEXT.md: True, False, Misleading, Outdated, Not confirmed yet.
  * Outdated needs Claim date handling (issue #9) and isn't produced yet. */
@@ -176,16 +179,8 @@ export interface Result {
   message: { text: string; imageText: string | null };
   /** Null when the Message has nothing to check (a photo with no text): only the Photo check. */
   mainClaim: { original: string; canonicalEn: string } | null;
-  verdict: {
-    label: VerdictLabel;
-    oneLine: string;
-    reasoning: ReasoningStep[];
-    whatWouldChange: string;
-    /** A Hard claim: the luna Verdicts disagreed or weren't sure, or Independent sources disagreed, so sol decided. */
-    escalated: boolean;
-    /** Worked out by code from the Evidence (confidence.ts). */
-    confidence: Confidence;
-  } | null;
+  /** Null when there's no Claim to judge. */
+  verdict: Verdict | null;
   /** Only for a Message with a photo. */
   photoCheck: PhotoCheck | null;
   evidence: Evidence[];
@@ -193,6 +188,18 @@ export interface Result {
   independentSources: number;
   /** The Photo check's and the agent's steps as the user last saw them live. */
   steps: AgentStep[];
+}
+
+/** The Main claim's Verdict, as saved. */
+export interface Verdict {
+  label: VerdictLabel;
+  oneLine: string;
+  reasoning: ReasoningStep[];
+  whatWouldChange: string;
+  /** A Hard claim: the luna Verdicts disagreed or weren't sure, or Independent sources disagreed, so sol decided. */
+  escalated: boolean;
+  /** Worked out by code from the Evidence (confidence.ts). */
+  confidence: Confidence;
 }
 
 /** One tool call, as a line in the live step list and on the proof page. */

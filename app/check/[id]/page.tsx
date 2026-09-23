@@ -1,6 +1,6 @@
 import { StepStatusIcon } from "@/components/step-status-icon";
 import { getResult } from "@/lib/engine/boundary.ts";
-import type { Confidence, Evidence, PhotoCheck, ReasoningStep, Result, Tier, VerdictLabel } from "@/lib/engine/schemas.ts";
+import type { Confidence, Evidence, PhotoCheck, ReasoningStep, Result, Tier, Verdict, VerdictLabel } from "@/lib/engine/schemas.ts";
 import { isFactChecker, tierOf } from "@/lib/engine/sources.ts";
 
 const LABEL_TEXT: Record<VerdictLabel, string> = {
@@ -37,7 +37,6 @@ type StoredResult = Omit<Result, "message" | "verdict" | "evidence" | "independe
   steps?: Result["steps"];
   photoCheck?: PhotoCheck | null;
 };
-type Verdict = NonNullable<Result["verdict"]>;
 
 /** A stance we don't know is the honest answer for older Evidence: it's shown, just not on a side. */
 type ShownEvidence = Omit<Evidence, "stance"> & { stance: Evidence["stance"] | null };
@@ -118,7 +117,7 @@ function PhotoCheckCard({ photo }: { photo: PhotoCheck }) {
 }
 
 /** Which model decided, in words; a null model means code decided (no Independent source either way). */
-function decidedBy({ verdict, model }: StoredResult & { verdict: NonNullable<StoredResult["verdict"]> }): string {
+function decidedBy(model: string | null, verdict: NonNullable<StoredResult["verdict"]>): string {
   if (model === null) return "Decided by rule: no Independent source either way.";
   if (!verdict.escalated) return `Decided by ${model}.`;
   const why = "the quick verdicts disagreed or weren't sure, or Independent sources disagreed";
@@ -263,7 +262,7 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
               {verdict.whatWouldChange}
             </p>
           )}
-          <p className="text-xs text-muted-foreground">{decidedBy({ ...result, verdict })}</p>
+          <p className="text-xs text-muted-foreground">{decidedBy(result.model, verdict)}</p>
         </section>
       )}
 

@@ -88,7 +88,7 @@ Keys never reach the browser or git.
 ### ② Understand (one structured call)
 Output per message (max 3 claims):
 ```
-language, image_description, ocr_text,
+language, image_description, image_text,
 claims[]: { original, canonical_en, checkable, tag: fact|value, claim_type, claim_date, questions[2-4] }
 ```
 - `claim_type`: death_health · govt_scheme_law · money_banking · election · disaster_weather ·
@@ -161,15 +161,16 @@ Weights are a guess, tuned against the test set. This function gets one small ru
 Runs in code for any Message with a photo, before the agent loop, streamed as step lines. Not a
 model call, and separate from the Verdict: a real photo can carry a False Claim.
 - **Reverse image search:** the photo is re-encoded (≤1024px JPEG, under SerpApi's 500 KB limit, EXIF
-  dropped so GPS never leaves the server), uploaded to SerpApi's Image API (`image_id`, lasts 10 min),
+  dropped; Sightengine gets the same copy), uploaded to SerpApi's Image API (`image_id`, lasts 10 min),
   then searched with `engine=google_lens&type=exact_matches`. Results carry no dates.
 - **Earliest copy:** `read_page` on the top 3 matches in parallel (page date, else earliest Wayback);
   the earliest dated one wins, worded "earliest copy we found".
 - **EXIF** (date, camera, GPS) is read in the browser *before* resizing, since canvas resizing drops it,
   and sent with the photo; the endpoint validates it. Supporting clue only.
 - **Sightengine** `genai` score: a hint, only with `SIGHTENGINE_USER`/`SECRET` set.
-- **Real?** yes = copies found and the AI score isn't ≥50% · no = no copy found and AI score ≥90% ·
-  otherwise unknown. Never a bare "FAKE".
+- **Real?** yes = a copy dated before the Claim date (a viral fake is copied too, so copies alone
+  aren't enough) and the AI score under 50% · otherwise unknown. Nothing here proves editing, so
+  code never says "no", and the AI score alone never decides. Never a bare "FAKE".
 - Google Vision was dropped: it needs billing on the Google Cloud project, which the team isn't paying.
 
 ### ⑨ Origin trace ("Web Intelligence")

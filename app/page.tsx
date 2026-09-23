@@ -2,7 +2,7 @@
 
 import { StepStatusIcon } from "@/components/step-status-icon";
 import { Button } from "@/components/ui/button";
-import { MAX_MESSAGE_LENGTH, type AgentStep, type Exif } from "@/lib/engine/schemas.ts";
+import { IMAGE_TYPES, MAX_MESSAGE_LENGTH, NOT_AN_IMAGE, type AgentStep, type Exif } from "@/lib/engine/schemas.ts";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -11,7 +11,6 @@ type Row = { id: string; line: string; status?: AgentStep["status"] };
 
 type Photo = { name: string; blob: Blob; exif: Exif | null };
 
-const PHOTO_TYPES = ["image/png", "image/jpeg", "image/webp"];
 /** Longest side after resizing: plenty for reading a screenshot, quick on mobile data. */
 const MAX_SIDE = 1600;
 
@@ -62,8 +61,8 @@ export default function Home() {
     setError(null);
     setPhoto(null);
     if (!file) return;
-    if (!PHOTO_TYPES.includes(file.type)) {
-      setError("That file isn't a photo we can read — please add a PNG, JPEG or WEBP image.");
+    if (!(IMAGE_TYPES as readonly string[]).includes(file.type)) {
+      setError(NOT_AN_IMAGE);
       return;
     }
     const [exif, blob] = await Promise.all([readExif(file), resized(file)]);
@@ -157,7 +156,7 @@ export default function Home() {
             {photo ? "Change photo" : "Add photo / screenshot"}
             <input
               type="file"
-              accept={PHOTO_TYPES.join(",")}
+              accept={IMAGE_TYPES.join(",")}
               disabled={running}
               onChange={(e) => {
                 onPhoto(e.target.files?.[0]);

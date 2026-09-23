@@ -13,13 +13,16 @@ import { photoCheck } from "./photo.ts";
 import {
   MAX_IMAGE_BYTES,
   MAX_MESSAGE_LENGTH,
+  NOT_AN_IMAGE,
   UnderstandSchema,
   VerdictSchema,
   type CheckEvent,
   type Evidence,
+  type ImageType,
   type MessageImage,
   type Result,
   type Understood,
+  type Verdict,
   type VerdictOutput,
 } from "./schemas.ts";
 
@@ -33,7 +36,7 @@ export interface CheckOptions {
 }
 
 /** The file type, from the file's own first bytes rather than what the upload claims. */
-function imageType(bytes: Uint8Array): "image/png" | "image/jpeg" | "image/webp" | null {
+function imageType(bytes: Uint8Array): ImageType | null {
   const ascii = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to));
   if (ascii(1, 4) === "PNG" && bytes[0] === 0x89) return "image/png";
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
@@ -67,7 +70,7 @@ async function liveUnderstand(client: OpenAI, message: string, image: MessageIma
 /** No Origin for or against the Claim means nothing independent backs it, whether the Evidence is
  * only Fact-checks or Origin tagging failed. The Verdict is then "Not confirmed yet" whatever the
  * model says (CONTEXT.md "Not confirmed yet"). */
-const NOT_CONFIRMED: NonNullable<Result["verdict"]> = {
+const NOT_CONFIRMED: Verdict = {
   label: "unconfirmed",
   oneLine: "No independent source has confirmed or denied this yet.",
   reasoning: [],
@@ -141,7 +144,7 @@ async function decideVerdict(
   evidence: Evidence[],
   independentSources: number,
   world: World,
-): Promise<{ verdict: NonNullable<Result["verdict"]>; model: string }> {
+): Promise<{ verdict: Verdict; model: string }> {
   const run = (model: keyof typeof MODELS, index: number) =>
     world.openai({ step: "verdict", model, run: index }, (client) =>
       liveVerdict(client, model, claim, claimDate, evidence, independentSources),
@@ -202,7 +205,7 @@ export async function* check(message: string, options: CheckOptions = {}): Async
 
   const { image } = options;
   if (image && !imageType(image.bytes)) {
-    yield { type: "error", message: "That file isn't a photo we can read — please add a PNG, JPEG or WEBP image." };
+    yield { type: "error", message: NOT_AN_IMAGE };
     return;
   }
   if (image && image.bytes.length > MAX_IMAGE_BYTES) {
@@ -221,7 +224,7 @@ export async function* check(message: string, options: CheckOptions = {}): Async
 
     // ponytail: the Photo check runs before the agent, adding its ~10s to a Check with a photo;
     // run the two side by side if that feels slow.
-    const photo = image ? yield* photoCheck(world, image, understood.image_description) : null;
+    const photo = image ? yield* photoCheck(world, image, understood.image_description, claimDate) : null;
 
     let checked: Pick<Result, "model" | "verdict" | "evidence" | "independentSources" | "steps"> = {
       model: null,
