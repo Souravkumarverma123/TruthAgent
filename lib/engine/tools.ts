@@ -1,6 +1,6 @@
 // Our function tools, run by the agent loop (agent.ts). Every fetch goes
 // through the Check's World, so replay mode covers them at $0.
-import { ReplayGap, waybackCdxUrl, type World } from "./boundary.ts";
+import { tolerate, waybackCdxUrl, type World } from "./boundary.ts";
 import { isBlocked } from "./sources.ts";
 
 /** Per tool call (the Wayback lookup shares it with the page fetch). */
@@ -130,8 +130,7 @@ export interface Page {
  * it may exist but couldn't be read just now (timeout, 403, 5xx). */
 export type PageRead = Page | "dead" | "unreachable";
 
-export function failedRead(error: unknown): "dead" | "unreachable" {
-  if (error instanceof ReplayGap) throw error;
+export const failedRead = tolerate((error): "dead" | "unreachable" => {
   if (!(error instanceof Error)) return "unreachable";
   const code = (error as NodeJS.ErrnoException).code;
   const dead =
@@ -139,7 +138,7 @@ export function failedRead(error: unknown): "dead" | "unreachable" {
     code === "ERR_INVALID_URL" ||
     /^HTTP (404|410)$|^Not a public web page$|block list/.test(error.message);
   return dead ? "dead" : "unreachable";
-}
+});
 
 /** The `read_page` tool: page text plus a published date, from the page itself else the earliest Wayback copy. */
 export async function readPage(world: World, url: string): Promise<Page> {
@@ -147,10 +146,7 @@ export async function readPage(world: World, url: string): Promise<Page> {
   const signal = AbortSignal.timeout(TOOL_MS);
   const html = await world.fetchText(url, signal);
   const fromPage = publishedDateFromPage(html);
-  const fromWayback = fromPage ? null : await earliestWaybackDay(world, url, signal).catch((error) => {
-        if (error instanceof ReplayGap) throw error;
-        return null;
-      });
+  const fromWayback = fromPage ? null : await earliestWaybackDay(world, url, signal).catch(tolerate(() => null));
   return {
     url,
     published: fromPage ?? fromWayback,

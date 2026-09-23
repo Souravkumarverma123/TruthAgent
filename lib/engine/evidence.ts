@@ -4,7 +4,7 @@
 // Independent sources.
 import type OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
-import { ReplayGap, type World } from "./boundary.ts";
+import { tolerate, type World } from "./boundary.ts";
 import { originsBySide } from "./confidence.ts";
 import { MODELS } from "./models.ts";
 import { OriginsSchema, type CheckEvent, type Evidence, type EvidenceCandidate, type OriginsOutput } from "./schemas.ts";
@@ -146,10 +146,7 @@ export async function* processEvidence(
         accepted.map((e) => ({ id: e.id, site: e.site, quote: e.quote, page_start: pageStart.get(e.id)! })),
       ),
     )
-    .catch((error): OriginsOutput => {
-      if (error instanceof ReplayGap) throw error;
-      return { origins: [] };
-    });
+    .catch(tolerate((): OriginsOutput => ({ origins: [] })));
 
   // An id claimed twice keeps its first group; unknown ids and groups with no Origin named are ignored.
   // Distinct Origins are the Independent sources, Fact-checks aside (confidence.ts).

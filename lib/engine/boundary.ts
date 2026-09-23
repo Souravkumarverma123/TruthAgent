@@ -9,6 +9,7 @@ import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 import { join } from "node:path";
 import OpenAI from "openai";
+import type { MODELS } from "./models.ts";
 import type { AgentTurn, OriginsOutput, Result, Understood, VerdictOutput } from "./schemas.ts";
 
 export function outsideWorldMode(): "live" | "replay" {
@@ -20,7 +21,7 @@ export type Ask =
   | { step: "understand" }
   | { step: "agentTurn"; turn: number }
   | { step: "origins" }
-  | { step: "verdict"; model: "luna" | "sol"; run: number };
+  | { step: "verdict"; model: keyof typeof MODELS; run: number };
 
 interface Answers {
   understand: Understood;
@@ -61,6 +62,15 @@ export class ReplayGap extends Error {
   constructor(what: string) {
     super(`Replay has no answer for ${what}. Add it to the Scenario (lib/engine/scenarios.ts), or run live.`);
   }
+}
+
+/** Where the Engine tolerates an outside failure (a page that won't load, tagging that fails):
+ * the fallback for that failure, while a ReplayGap still fails the Check. */
+export function tolerate<T>(fallback: (error: unknown) => T): (error: unknown) => T {
+  return (error) => {
+    if (error instanceof ReplayGap) throw error;
+    return fallback(error);
+  };
 }
 
 function replayAnswer(scenario: Scenario, ask: Ask): { answer: unknown; what: string } {

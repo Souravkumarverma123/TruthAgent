@@ -263,7 +263,7 @@ export const RETIRED: Scenario = (() => {
   };
 })();
 
-/** A plain forward the agent finds nothing on. */
+/** A plain Message the agent finds nothing on. */
 export const SOME_FORWARD: Scenario = {
   understand: understood("Some forward", "other"),
   agentTurns: [{ responseId: "resp_replay_nothing", searches: [], calls: [], evidence: [] }],
@@ -271,7 +271,7 @@ export const SOME_FORWARD: Scenario = {
 
 /** The dev server's replay answers, by the Message typed. */
 export const DEMO_SCENARIOS: Record<string, Scenario> = Object.fromEntries(
-  [BACHCHAN, RBI_500, LAPTOP, WITHDRAWN_2000, HOSPITAL, RETIRED, SOME_FORWARD].map((s) => [
+  [BACHCHAN, RBI_500, LAPTOP, WITHDRAWN_2000, HOSPITAL, RETIRED].map((s) => [
     s.understand!.main_claim.original,
     s,
   ]),
