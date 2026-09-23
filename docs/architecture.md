@@ -230,11 +230,15 @@ scripts/eval.ts              runs the 40-claim test set (fact-check sites blocke
 
 Timing of that live Check: understand 3.3s · search 8s · two `read_page` calls 6.5s + 8s (run one after the other) · Evidence + Origin tagging 7.6s · Verdict 5.4s. If Checks feel slow, run a turn's `read_page` calls in parallel first.
 
-Cost of all of the above: about $0.05 (2 web searches plus luna tokens).
+Upstash Redis is set up: a second live Check (the Bachchan claim) saved its Result and read it back.
+It took 53s: 3 searches, 2 pages that couldn't be read (tumblr blog, tumlook.com), 1 piece of Evidence,
+so **Not confirmed yet**. That's the honest answer on that Evidence, but it's the demo claim: pre-test demo
+claims live before #17. The Evidence step alone took 13.5s (fetching unread pages + Origin tagging).
+
+Cost of all of the above: about $0.10 (5 web searches plus luna tokens).
 
 Still open, needs a human:
 - **Enable billing** on the Google Cloud project (the key stays restricted to Fact Check + Vision), then rerun Vision on a screenshot of the actual traffic-light video.
-- **Upstash Redis** keys (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`): without them a live Check runs to its Verdict, then fails to save the Result.
 - A hard monthly spend limit in the OpenAI dashboard, if not set yet.
 
 Noticed on the way (not fixed here): the Understand step has no `language` field yet, though the spec asks for one (the Hindi Verdict ticket, #14, needs it); and a search step's line lists every query, so it gets long.
