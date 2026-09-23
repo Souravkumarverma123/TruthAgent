@@ -15,3 +15,16 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Default model `gpt-6-luna`; `gpt-6-sol` only for the verdict on hard claims. Budget is $4 total: never add model calls casually.
 - Keys only in `.env.local` (see `.env.example`), never in client code, never committed.
 - UI in `app/`, checking pipeline in `lib/engine/`. One Next.js app, no separate backend.
+- Every outside call (OpenAI, Google, page fetch, Wayback, Sightengine, Redis) goes through the outside-world boundary, which has `live` and `replay` modes. Replay is the default in dev and tests and costs $0; use live only when a ticket says so.
+- One test seam: the Engine entry `check(message, options)`. Tests go in through it and assert only on what a user could see (labels, Confidence, Evidence sides, step events), never on internals.
+
+# Working on an issue
+
+Work is tracked in GitHub Issues (`gh` CLI). The spec is issue #1; each ticket links to it.
+
+1. Read the ticket (`gh issue view <n>`) and the spec sections it touches (`gh issue view 1`).
+2. Check that its **Blocked by** issues are closed. If they aren't, stop and say so.
+3. Priority: P0 first (never cut), then P1, then P2 (first to cut). Stay inside the ticket's scope. If you notice other work, mention it; don't do it.
+4. Branch `issue-<n>-<short-slug>` from `main`.
+5. Before opening a PR: `npm run lint`, `npm run build`, and the tests (in replay mode) all pass. Tick the ticket's acceptance criteria you met.
+6. Open a PR whose body starts with `Closes #<n>` and lists anything left undone.
