@@ -2,6 +2,7 @@
 // `callOpenAI` doc comment for why these are static rather than hash-keyed.
 import type { AgentTurn } from "./agent.ts";
 import { waybackCdxUrl } from "./boundary.ts";
+import { MODELS } from "./models.ts";
 import type { Evidence, OriginsOutput, Understood, VerdictOutput } from "./schemas.ts";
 
 /** No search happens in replay mode, so this just echoes what was typed —
@@ -150,9 +151,58 @@ export function originFixture(evidence: Evidence[]): OriginsOutput {
   return { origins: [...groups].map(([origin, evidence_ids]) => ({ origin, evidence_ids })) };
 }
 
-export function verdictFixture(): VerdictOutput {
+/** The Hard claim scenarios: on the RBI claim the two luna runs disagree; on this one (Bachchan's
+ * Evidence, a different Claim) both are under 70% sure, and so is sol. */
+const HOSPITAL_CLAIM = /hospital/i;
+/** And on this one, one luna run's probabilities don't add up. */
+const RETIRED_CLAIM = /retired/i;
+
+/** What each Verdict run answers, by scenario, model and run (the two luna runs are 0 and 1). */
+export function verdictFixture(claim: string, model: string, run: number): VerdictOutput {
+  const sure = (label: VerdictOutput["label"], probability: number) => [
+    { label, probability },
+    { label: "unconfirmed" as const, probability: Number((1 - probability).toFixed(2)) },
+  ];
+  if (RBI_CLAIM.test(claim)) {
+    const label = model === MODELS.luna && run === 1 ? "misleading" : "false";
+    return {
+      label,
+      one_line: "The ANI report quotes RBI saying ₹500 notes remain legal tender.",
+      reasoning: [{ tag: "fact", text: "ANI quotes RBI: ₹500 notes remain legal tender.", evidence_ids: ["E1"] }],
+      alternatives: sure(label, model === MODELS.sol ? 0.85 : 0.8),
+      what_would_change: "An RBI notice withdrawing ₹500 notes.",
+    };
+  }
+  if (RETIRED_CLAIM.test(claim)) {
+    // One luna run says it's 120% sure: not a probability, so not a confident Verdict.
+    return {
+      label: "false",
+      one_line: "Nothing found reports him retiring.",
+      reasoning: [{ tag: "inference", text: "The Evidence is about a death hoax, not retirement.", evidence_ids: ["E1"] }],
+      alternatives: model === MODELS.luna && run === 1 ? [{ label: "false", probability: 1.2 }] : sure("false", 0.9),
+      what_would_change: "A statement from him or his family.",
+    };
+  }
+  if (HOSPITAL_CLAIM.test(claim)) {
+    return {
+      label: "false",
+      one_line: "Nothing found reports him in hospital.",
+      reasoning: [{ tag: "inference", text: "The Evidence is about a death hoax, not a hospital stay.", evidence_ids: ["E1"] }],
+      alternatives: sure("false", model === MODELS.sol ? 0.55 : 0.6),
+      what_would_change: "A statement from the family or the hospital.",
+    };
+  }
   return {
     label: "false",
     one_line: "No credible source reports this; the claim traces back to a recurring hoax, not news.",
+    reasoning: [
+      { tag: "fact", text: "Alt News says this death rumour has gone viral before.", evidence_ids: ["E1"] },
+      { tag: "fact", text: "Wikipedia gives his birth date and no date of death.", evidence_ids: ["E2"] },
+      { tag: "inference", text: "The only report of a death is an unsourced post.", evidence_ids: ["E3"] },
+      { tag: "hypothesis", text: "A hospital statement confirmed the death.", evidence_ids: ["E99"] },
+      { tag: "assumption", text: "A death this famous would be reported by major outlets within hours.", evidence_ids: [] },
+    ],
+    alternatives: sure("false", 0.9),
+    what_would_change: "A statement from his family or a major outlet reporting the death.",
   };
 }

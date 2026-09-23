@@ -79,21 +79,43 @@ export interface Evidence {
   factCheck: boolean;
 }
 
-/** Structured output of the Verdict step (one call, luna, over the agent's Evidence). */
+export const REASONING_TAGS = ["fact", "inference", "assumption", "hypothesis"] as const;
+
+/** Structured output of the Verdict step (luna twice, sol once for a Hard claim). Evidence is cited
+ * by id only; code drops a step citing an id the Check never found. */
 export const VerdictSchema = z.object({
   label: z.enum(VERDICT_LABELS),
   one_line: z.string(),
+  reasoning: z.array(z.object({ tag: z.enum(REASONING_TAGS), text: z.string(), evidence_ids: z.array(z.string()) })),
+  /** Top-k labels with probabilities; the chosen label's is how sure the model is. */
+  alternatives: z.array(z.object({ label: z.enum(VERDICT_LABELS), probability: z.number().min(0).max(1) })),
+  what_would_change: z.string(),
 });
 export type VerdictOutput = z.infer<typeof VerdictSchema>;
+
+/** One reasoning step on the proof page. */
+export interface ReasoningStep {
+  tag: (typeof REASONING_TAGS)[number];
+  text: string;
+  evidenceIds: string[];
+}
 
 /** A saved Check outcome, rendered by the proof page. docs/architecture.md §"Result shape". */
 export interface Result {
   id: string;
   createdAt: string;
-  model: string;
+  /** The model that decided the Verdict; null when code decided it (no Independent source). */
+  model: string | null;
   message: { text: string };
   mainClaim: { original: string; canonicalEn: string };
-  verdict: { label: VerdictLabel; oneLine: string };
+  verdict: {
+    label: VerdictLabel;
+    oneLine: string;
+    reasoning: ReasoningStep[];
+    whatWouldChange: string;
+    /** A Hard claim: the luna Verdicts disagreed or weren't sure, so sol decided. */
+    escalated: boolean;
+  };
   evidence: Evidence[];
   /** Distinct Origins among the Evidence (CONTEXT.md "Independent source"). */
   independentSources: number;
@@ -114,6 +136,6 @@ export type CheckEvent =
   | { type: "understood"; claim: { original: string; canonicalEn: string } }
   | ({ type: "step"; id: string } & AgentStep)
   | { type: "evidence"; id: string; site: string; stance: Evidence["stance"] }
-  | { type: "verdict"; label: VerdictLabel; oneLine: string }
+  | { type: "verdict"; label: VerdictLabel; oneLine: string; escalated: boolean }
   | { type: "done"; id: string }
   | { type: "error"; message: string };

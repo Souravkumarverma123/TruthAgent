@@ -4,6 +4,6 @@
 export const MODELS = {
   /** Everything by default: understand, agent loop, stance, verdict. */
   luna: "gpt-6-luna",
-  /** Verdict only, and only for Hard claims (issue #7). Not used yet. */
+  /** Verdict only, and only for Hard claims (check.ts). Used nowhere else. */
   sol: "gpt-6-sol",
 } as const;

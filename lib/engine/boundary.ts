@@ -26,11 +26,10 @@ function client(): OpenAI {
  * returned with no network call and no cost; in live mode, `live` runs
  * against the real API.
  *
- * ponytail: replay mode returns a fixed fixture regardless of the request,
- * not a request-hash-keyed recording. A real Check's Understand/Verdict
- * calls are input-independent enough for this tracer bullet's one scenario;
- * upgrade to hash-keyed fixtures (docs/architecture.md §7) when a later
- * ticket needs more than one replay scenario.
+ * ponytail: replay mode returns the fixture the caller picked (fixtures.ts
+ * picks by scenario: which claim, which model, which run), not a
+ * request-hash-keyed recording. Upgrade to hash-keyed fixtures
+ * (docs/architecture.md §7) when picking by claim text stops scaling.
  */
 export async function callOpenAI<T>(params: { fixture: T; live: (client: OpenAI) => Promise<T> }): Promise<T> {
   if (outsideWorldMode() === "replay") return params.fixture;
