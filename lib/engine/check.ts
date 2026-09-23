@@ -5,6 +5,7 @@ import type OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { agentLoop } from "./agent.ts";
 import { callOpenAI, saveResult } from "./boundary.ts";
+import { confidenceOf, originsBySide } from "./confidence.ts";
 import { processEvidence } from "./evidence.ts";
 import { understandFixture, verdictFixture } from "./fixtures.ts";
 import { MODELS } from "./models.ts";
@@ -40,13 +41,14 @@ async function liveUnderstand(client: OpenAI, message: string): Promise<Understo
 
 /** No Origin for or against the Claim means nothing independent backs it, whether the Evidence is
  * only Fact-checks or Origin tagging failed. The Verdict is then "Not confirmed yet" whatever the
- * model says (CONTEXT.md "Not confirmed yet"; the full Confidence rule is issue #8). */
+ * model says (CONTEXT.md "Not confirmed yet"). */
 const NOT_CONFIRMED: Result["verdict"] = {
   label: "unconfirmed",
   oneLine: "No independent source has confirmed or denied this yet.",
   reasoning: [],
   whatWouldChange: "An Independent source confirming or denying it.",
   escalated: false,
+  confidence: confidenceOf("unconfirmed", 0, []),
 };
 
 /** Below this, a Verdict's top label isn't sure enough: a Hard claim (CONTEXT.md). */
@@ -105,9 +107,8 @@ function topProbability(verdict: VerdictOutput): number {
   return (wellFormed && alternatives.find((a) => a.label === verdict.label)?.probability) || 0;
 }
 
-/** luna judges twice in parallel. A Hard claim (the runs disagree, or either is under 70% sure;
- * the third trigger, Independent sources disagreeing, is issue #8)
- * gets one sol Verdict; if sol isn't sure either, the Claim is Not confirmed yet. sol is used
+/** luna judges twice in parallel. A Hard claim (the runs disagree, either is under 70% sure, or
+ * Independent sources disagree) gets one sol Verdict; if sol isn't sure either, the Claim is Not confirmed yet. sol is used
  * nowhere else. Code drops any reasoning step citing an Evidence id the Check never found. */
 async function decideVerdict(
   claim: string,
@@ -121,8 +122,11 @@ async function decideVerdict(
       live: (client) => liveVerdict(client, model, claim, claimDate, evidence, independentSources),
     });
   const [first, second] = await Promise.all([run(MODELS.luna, 0), run(MODELS.luna, 1)]);
+  const sides = originsBySide(evidence);
   const escalated =
-    first.label !== second.label || Math.min(topProbability(first), topProbability(second)) < HARD_PROBABILITY;
+    first.label !== second.label ||
+    Math.min(topProbability(first), topProbability(second)) < HARD_PROBABILITY ||
+    (sides.supports.size > 0 && sides.contradicts.size > 0);
   const decided = escalated ? await run(MODELS.sol, 0) : first;
   const unsettled = escalated && topProbability(decided) < HARD_PROBABILITY;
 
@@ -137,6 +141,7 @@ async function decideVerdict(
         reasoning: [],
         whatWouldChange: "More Independent sources agreeing one way.",
         escalated,
+        confidence: confidenceOf("unconfirmed", 0, evidence),
       },
     };
   }
@@ -151,6 +156,7 @@ async function decideVerdict(
         .map((step) => ({ tag: step.tag, text: step.text, evidenceIds: step.evidence_ids })),
       whatWouldChange: decided.what_would_change,
       escalated,
+      confidence: confidenceOf(decided.label, topProbability(decided), evidence),
     },
   };
 }

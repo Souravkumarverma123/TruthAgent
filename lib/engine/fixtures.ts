@@ -36,6 +36,19 @@ const ANI_LINE =
   "and there is no plan to withdraw them.";
 const ANI_SITES = Array.from({ length: 15 }, (_, i) => `https://news${i + 1}.example/rbi-500-notes-legal-tender`);
 
+/** An easy True claim: an RBI press release and a PTI report agree, nothing against. */
+const WITHDRAWN_CLAIM = /₹2000/;
+const RBI_PRESS = "https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=55707";
+const RBI_PRESS_LINE = "The Reserve Bank of India has decided to withdraw the ₹2000 denomination banknotes from circulation.";
+const HINDU = "https://www.thehindu.com/business/rbi-withdraws-2000-notes/article66871234.ece";
+const HINDU_LINE = "RBI on Friday announced the withdrawal of ₹2,000 notes from circulation, PTI reported.";
+
+/** The Hard claim scenarios: on the RBI claim the two luna runs disagree; on this one both are under
+ * 70% sure, and so is sol. Their Evidence is one-sided, so they escalate for that reason alone. */
+const HOSPITAL_CLAIM = /hospital/i;
+/** And on this one, one luna run's probabilities don't add up. */
+const RETIRED_CLAIM = /retired/i;
+
 /**
  * The agent's turns, by scenario. Default: the recurring Amitabh Bachchan
  * death hoax (docs/handoff.md "Demo Claims"): one search and four page reads
@@ -61,6 +74,25 @@ export function agentTurnFixture(claim: string, turnIndex: number): AgentTurn {
         quote: "The Reserve Bank of India on Tuesday said ₹500 notes remain legal tender",
         stance: "contradicts",
       })),
+    };
+  }
+  if (WITHDRAWN_CLAIM.test(claim)) {
+    return {
+      responseId: "resp_replay_withdrawn",
+      searches: [{ query: "RBI ₹2000 notes withdrawn", failed: false }],
+      calls: [],
+      evidence: [
+        { url: RBI_PRESS, quote: RBI_PRESS_LINE, stance: "supports" },
+        { url: HINDU, quote: HINDU_LINE, stance: "supports" },
+      ],
+    };
+  }
+  if (HOSPITAL_CLAIM.test(claim) || RETIRED_CLAIM.test(claim)) {
+    return {
+      responseId: "resp_replay_wikipedia",
+      searches: [{ query: "Amitabh Bachchan news", failed: false }],
+      calls: [],
+      evidence: [{ url: WIKIPEDIA, quote: "Amitabh Bachchan (born 11 October 1942) is an Indian actor", stance: "contradicts" }],
     };
   }
   if (turnIndex === 0) {
@@ -119,6 +151,8 @@ const RECORDED_PAGES: Record<string, string | number> = {
   [BAD_DATE_SITE]:
     '<html><head><meta property="article:published_time" content="2026-13-40"></head>' +
     "<body><p>Police said the message circulating on WhatsApp is a rumour.</p></body></html>",
+  [RBI_PRESS]: `<html><head><meta property="article:published_time" content="2023-05-19"></head><body><p>${RBI_PRESS_LINE}</p></body></html>`,
+  [HINDU]: `<html><head><meta property="article:published_time" content="2023-05-19"></head><body><p>${HINDU_LINE}</p></body></html>`,
   [waybackCdxUrl(WIKIPEDIA)]:
     '[["timestamp"],["20040105093012"]]',
   ...Object.fromEntries(
@@ -140,6 +174,8 @@ const ORIGINS: Record<string, string> = {
   [BOOM]: "BOOM's own fact-check",
   [WIKIPEDIA]: "Wikipedia's article",
   [HOAX_SITE]: "viralnewsnow.example's unsourced post",
+  [RBI_PRESS]: "RBI press release",
+  [HINDU]: "PTI wire",
   ...Object.fromEntries(ANI_SITES.map((url) => [url, "ANI wire"])),
 };
 
@@ -150,12 +186,6 @@ export function originFixture(evidence: Evidence[]): OriginsOutput {
   }
   return { origins: [...groups].map(([origin, evidence_ids]) => ({ origin, evidence_ids })) };
 }
-
-/** The Hard claim scenarios: on the RBI claim the two luna runs disagree; on this one (Bachchan's
- * Evidence, a different Claim) both are under 70% sure, and so is sol. */
-const HOSPITAL_CLAIM = /hospital/i;
-/** And on this one, one luna run's probabilities don't add up. */
-const RETIRED_CLAIM = /retired/i;
 
 /** What each Verdict run answers, by scenario, model and run (the two luna runs are 0 and 1). */
 export function verdictFixture(claim: string, model: string, run: number): VerdictOutput {
@@ -173,12 +203,21 @@ export function verdictFixture(claim: string, model: string, run: number): Verdi
       what_would_change: "An RBI notice withdrawing ₹500 notes.",
     };
   }
+  if (WITHDRAWN_CLAIM.test(claim)) {
+    return {
+      label: "true",
+      one_line: "RBI announced the withdrawal of ₹2000 notes from circulation.",
+      reasoning: [{ tag: "fact", text: "RBI's press release says ₹2000 notes are being withdrawn.", evidence_ids: ["E1"] }],
+      alternatives: sure("true", 0.9),
+      what_would_change: "An RBI notice reversing the withdrawal.",
+    };
+  }
   if (RETIRED_CLAIM.test(claim)) {
     // One luna run says it's 120% sure: not a probability, so not a confident Verdict.
     return {
       label: "false",
       one_line: "Nothing found reports him retiring.",
-      reasoning: [{ tag: "inference", text: "The Evidence is about a death hoax, not retirement.", evidence_ids: ["E1"] }],
+      reasoning: [{ tag: "inference", text: "Wikipedia says nothing of him retiring.", evidence_ids: ["E1"] }],
       alternatives: model === MODELS.luna && run === 1 ? [{ label: "false", probability: 1.2 }] : sure("false", 0.9),
       what_would_change: "A statement from him or his family.",
     };
@@ -187,7 +226,7 @@ export function verdictFixture(claim: string, model: string, run: number): Verdi
     return {
       label: "false",
       one_line: "Nothing found reports him in hospital.",
-      reasoning: [{ tag: "inference", text: "The Evidence is about a death hoax, not a hospital stay.", evidence_ids: ["E1"] }],
+      reasoning: [{ tag: "inference", text: "Wikipedia says nothing of a hospital stay.", evidence_ids: ["E1"] }],
       alternatives: sure("false", model === MODELS.sol ? 0.55 : 0.6),
       what_would_change: "A statement from the family or the hospital.",
     };

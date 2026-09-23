@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Confidence } from "./confidence.ts";
 
 /** "Text over 2,000 characters is rejected" (issue #3 acceptance criteria).
  * Lives here, not in check.ts, so the client-side input page (app/page.tsx)
@@ -113,8 +114,10 @@ export interface Result {
     oneLine: string;
     reasoning: ReasoningStep[];
     whatWouldChange: string;
-    /** A Hard claim: the luna Verdicts disagreed or weren't sure, so sol decided. */
+    /** A Hard claim: the luna Verdicts disagreed or weren't sure, or Independent sources disagreed, so sol decided. */
     escalated: boolean;
+    /** Worked out by code from the Evidence (confidence.ts). */
+    confidence: Confidence;
   };
   evidence: Evidence[];
   /** Distinct Origins among the Evidence (CONTEXT.md "Independent source"). */

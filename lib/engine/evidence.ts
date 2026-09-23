@@ -5,6 +5,7 @@
 import type OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { callOpenAI } from "./boundary.ts";
+import { originsBySide } from "./confidence.ts";
 import { originFixture } from "./fixtures.ts";
 import { MODELS } from "./models.ts";
 import { OriginsSchema, type CheckEvent, type Evidence, type EvidenceCandidate, type OriginsOutput } from "./schemas.ts";
@@ -147,20 +148,19 @@ export async function* processEvidence(
       ),
   }).catch((): OriginsOutput => ({ origins: [] }));
 
-  // Each group is one Independent source; an id claimed twice keeps its first group, unknown ids
-  // and groups with no Origin named are ignored. A group of nothing but Fact-checks is a repeat of
-  // someone else's verdict, so it is a lead, not an Independent source (CONTEXT.md "Fact-check").
+  // An id claimed twice keeps its first group; unknown ids and groups with no Origin named are ignored.
+  // Distinct Origins are the Independent sources, Fact-checks aside (confidence.ts).
   const originById = new Map<string, string>();
-  let independentSources = 0;
   for (const group of tagged.origins) {
     const origin = group.origin.trim();
     const ids = group.evidence_ids.filter((id) => accepted.some((e) => e.id === id) && !originById.has(id));
-    if (!origin || ids.length === 0) continue;
+    if (!origin) continue;
     for (const id of ids) originById.set(id, origin);
-    if (ids.some((id) => !accepted.find((e) => e.id === id)!.factCheck)) independentSources++;
   }
   // ponytail: an item the tagger leaves out gets no Origin and isn't counted, erring towards
   // "Not confirmed yet"; count each as its own Origin if that under-counts in the accuracy run.
   const evidence = accepted.map((e) => ({ ...e, origin: originById.get(e.id) ?? null }));
+  const { supports, contradicts } = originsBySide(evidence);
+  const independentSources = new Set([...supports, ...contradicts]).size;
   return { evidence, independentSources };
 }

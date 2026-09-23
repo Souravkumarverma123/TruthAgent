@@ -17,6 +17,8 @@ const LABEL_CLASS: Record<VerdictLabel, string> = {
   unconfirmed: "bg-muted text-muted-foreground",
 };
 
+const CONFIDENCE_TEXT = { high: "High", medium: "Medium", low: "Low" } as const;
+
 const TIER_TEXT: Record<Tier, string> = {
   1: "Official source",
   2: "Fact-checker or major outlet",
@@ -74,9 +76,10 @@ const TAG_TEXT: Record<ReasoningStep["tag"], string> = {
 function decidedBy({ verdict, model }: StoredResult): string {
   if (model === null) return "Decided by rule: no Independent source either way.";
   if (!verdict.escalated) return `Decided by ${model}.`;
+  const why = "the quick verdicts disagreed or weren't sure, or Independent sources disagreed";
   return verdict.label === "unconfirmed"
-    ? `The quick verdicts disagreed or weren't sure, and ${model}, the stronger model, wasn't sure either, so it isn't confirmed yet.`
-    : `Decided by ${model}, the stronger model: the quick verdicts disagreed or weren't sure.`;
+    ? `A hard claim (${why}), and ${model}, the stronger model, wasn't sure either, so it isn't confirmed yet.`
+    : `Decided by ${model}, the stronger model: ${why}.`;
 }
 
 function EvidenceColumn({ title, items }: { title: string; items: ShownEvidence[] }) {
@@ -151,6 +154,14 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
       </span>
 
       <p className="text-lg text-foreground">{result.verdict.oneLine}</p>
+
+      {/* Results saved before issue #8 have no Confidence. */}
+      {result.verdict.confidence && (
+        <p className="text-sm text-foreground">
+          <span className="font-medium">{CONFIDENCE_TEXT[result.verdict.confidence.level]} confidence</span>
+          <span className="text-muted-foreground"> · {result.verdict.confidence.reason}</span>
+        </p>
+      )}
 
       <section className="rounded-lg border border-border bg-card p-4">
         <h2 className="text-sm font-medium text-muted-foreground">Main claim</h2>
