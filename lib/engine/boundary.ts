@@ -1,4 +1,4 @@
-// The outside-world boundary: every call to OpenAI or Redis goes through here.
+// The outside-world boundary: every call to OpenAI, Redis or a web page goes through here.
 // Two modes, per AGENTS.md: `live` (real calls, costs money) and `replay`
 // (canned data, $0, no network). Replay is the default in dev and tests.
 import { Redis } from "@upstash/redis";
@@ -31,6 +31,60 @@ function client(): OpenAI {
 export async function callOpenAI<T>(params: { fixture: T; live: (client: OpenAI) => Promise<T> }): Promise<T> {
   if (outsideWorldMode() === "replay") return params.fixture;
   return params.live(client());
+}
+
+/** Only public websites: `url` is chosen by the model, so no IP literals,
+ * localhost or internal hostnames.
+ * ponytail: doesn't resolve DNS, so a public name pointing at a private IP
+ * still passes; resolve and check the address if this ever runs next to
+ * something sensitive. */
+function isPublicHttpUrl(url: URL): boolean {
+  const host = url.hostname;
+  return (
+    (url.protocol === "http:" || url.protocol === "https:") &&
+    host.includes(".") &&
+    !host.startsWith("[") &&
+    !/^[\d.]+$/.test(host) &&
+    !/(^|\.)(localhost|local|internal)$/i.test(host)
+  );
+}
+
+/** Wayback's capture index for one page, earliest capture first (CDX lists
+ * oldest first, so `limit=1` is the earliest copy). */
+export function waybackCdxUrl(pageUrl: string): string {
+  return `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(pageUrl)}&output=json&limit=1&fl=timestamp`;
+}
+
+const MAX_REDIRECTS = 3;
+
+/**
+ * Fetches a web page (or Wayback API) as text. In replay mode, `fixture` is
+ * the recorded body for this exact URL; no recording means the fetch fails,
+ * just like an unreachable page would live.
+ */
+export async function fetchText(url: string, params: { signal: AbortSignal; fixture: string | undefined }): Promise<string> {
+  if (outsideWorldMode() === "replay") {
+    if (params.fixture === undefined) throw new Error(`No replay recording for ${url}`);
+    return params.fixture;
+  }
+  // Redirects are followed by hand so every hop gets the public-URL check.
+  let current = new URL(url);
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (!isPublicHttpUrl(current)) throw new Error("Not a public web page");
+    const response = await fetch(current, {
+      signal: params.signal,
+      redirect: "manual",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; TruthAgent/0.1)" },
+    });
+    const location = response.headers.get("location");
+    if (response.status >= 300 && response.status < 400 && location) {
+      current = new URL(location, current);
+      continue;
+    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.text();
+  }
+  throw new Error("Too many redirects");
 }
 
 const RESULT_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days, per docs/architecture.md §6

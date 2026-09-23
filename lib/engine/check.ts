@@ -1,8 +1,9 @@
 // The Engine's one entry point (AGENTS.md: "One test seam"). Understand →
-// hosted web search → one luna Verdict → save. See docs/architecture.md §5
+// agent loop (agent.ts) → one luna Verdict → save. See docs/architecture.md §5
 // for the full pipeline this tracer bullet is the first slice of.
 import type OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
+import { agentLoop } from "./agent.ts";
 import { callOpenAI, saveResult } from "./boundary.ts";
 import { understandFixture, verdictFixture } from "./fixtures.ts";
 import { MODELS } from "./models.ts";
@@ -27,8 +28,8 @@ async function liveUnderstand(client: OpenAI, message: string): Promise<Understo
     model: MODELS.luna,
     instructions:
       "Read the forwarded message and find the one Claim it's really about " +
-      "(the Main claim). Give it back as a short original excerpt and a " +
-      "canonical English sentence suitable for a web search.",
+      "(the Main claim). Give it back as a short original excerpt, a " +
+      "canonical English sentence suitable for a web search, and its Claim type.",
     input: message,
     text: { format: zodTextFormat(UnderstandSchema, "understand") },
   });
@@ -36,19 +37,20 @@ async function liveUnderstand(client: OpenAI, message: string): Promise<Understo
   return response.output_parsed;
 }
 
-async function liveVerdict(client: OpenAI, claim: string, claimDate: string): Promise<VerdictOutput> {
+async function liveVerdict(
+  client: OpenAI,
+  claim: string,
+  claimDate: string,
+  evidence: Evidence[],
+): Promise<VerdictOutput> {
   const response = await client.responses.parse({
     model: MODELS.luna,
-    tools: [{ type: "web_search" }],
     instructions:
-      `Today's date is ${new Date().toISOString().slice(0, 10)}. Judge the Claim as of ${claimDate}. ` +
-      "Search the web to check it, then decide: true, false, misleading, or " +
+      `Today's date is ${new Date().toISOString().slice(0, 10)}. Judge the Claim as of ${claimDate}, ` +
+      "using only the Evidence given. Decide: true, false, misleading, or " +
       "unconfirmed (too few independent sources either way — never guess). " +
-      "Give a one-line plain-language reason and cite the Evidence you " +
-      "actually found, each with its real url, a quote from the page, and " +
-      "whether it supports, contradicts, or is irrelevant to the Claim. " +
-      "Also search for denials and retractions, not just the original story.",
-    input: `Claim: ${claim}`,
+      "Give a one-line plain-language reason.",
+    input: `Claim: ${claim}\n\nEvidence:\n${JSON.stringify(evidence)}`,
     text: { format: zodTextFormat(VerdictSchema, "verdict") },
   });
   if (!response.output_parsed) throw new Error("Verdict step returned no output");
@@ -79,13 +81,17 @@ export async function* check(message: string, options: CheckOptions = {}): Async
     const claim = understood.main_claim;
     yield { type: "understood", claim: { original: claim.original, canonicalEn: claim.canonical_en } };
 
+    const { evidence, steps } = yield* agentLoop(
+      { canonicalEn: claim.canonical_en, claimType: claim.claim_type },
+      claimDate,
+    );
+
     const verdict = await callOpenAI({
       fixture: verdictFixture(),
-      live: (client) => liveVerdict(client, claim.canonical_en, claimDate),
+      live: (client) => liveVerdict(client, claim.canonical_en, claimDate, evidence),
     });
     yield { type: "verdict", label: verdict.label, oneLine: verdict.one_line };
 
-    const evidence: Evidence[] = verdict.evidence;
     const result: Result = {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
@@ -94,6 +100,7 @@ export async function* check(message: string, options: CheckOptions = {}): Async
       mainClaim: { original: claim.original, canonicalEn: claim.canonical_en },
       verdict: { label: verdict.label, oneLine: verdict.one_line },
       evidence,
+      steps,
     };
     await saveResult(result);
     yield { type: "done", id: result.id };

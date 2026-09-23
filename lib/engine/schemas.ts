@@ -11,6 +11,20 @@ export const MAX_MESSAGE_LENGTH = 2000;
 export const VERDICT_LABELS = ["true", "false", "misleading", "unconfirmed"] as const;
 export type VerdictLabel = (typeof VERDICT_LABELS)[number];
 
+/** Drives the Authority rule in the agent's prompt (sources.ts). */
+export const CLAIM_TYPES = [
+  "death_health",
+  "govt_scheme_law",
+  "money_banking",
+  "election",
+  "disaster_weather",
+  "statistics",
+  "science_health",
+  "image_context",
+  "other",
+] as const;
+export type ClaimType = (typeof CLAIM_TYPES)[number];
+
 /** Structured output of the Understand step (one call, luna). */
 export const UnderstandSchema = z.object({
   main_claim: z.object({
@@ -18,11 +32,12 @@ export const UnderstandSchema = z.object({
     original: z.string(),
     /** A canonical English sentence, for searching and caching. */
     canonical_en: z.string(),
+    claim_type: z.enum(CLAIM_TYPES),
   }),
 });
 export type Understood = z.infer<typeof UnderstandSchema>;
 
-/** A quoted, linked piece of Evidence the model found via hosted web search. */
+/** A quoted, linked piece of Evidence the agent loop found. */
 export const EvidenceSchema = z.object({
   url: z.string(),
   site: z.string(),
@@ -31,11 +46,13 @@ export const EvidenceSchema = z.object({
 });
 export type Evidence = z.infer<typeof EvidenceSchema>;
 
-/** Structured output of the Verdict step (one call, luna, with hosted web search). */
+/** Structured output the agent loop ends with: its Evidence candidates. */
+export const EvidenceCandidatesSchema = z.object({ evidence: z.array(EvidenceSchema) });
+
+/** Structured output of the Verdict step (one call, luna, over the agent's Evidence). */
 export const VerdictSchema = z.object({
   label: z.enum(VERDICT_LABELS),
   one_line: z.string(),
-  evidence: z.array(EvidenceSchema),
 });
 export type VerdictOutput = z.infer<typeof VerdictSchema>;
 
@@ -48,12 +65,23 @@ export interface Result {
   mainClaim: { original: string; canonicalEn: string };
   verdict: { label: VerdictLabel; oneLine: string };
   evidence: Evidence[];
+  /** The agent's steps as the user last saw them live. */
+  steps: AgentStep[];
 }
 
-/** Step events streamed from the Check endpoint. Covers only the events this
- * ticket needs; `cache`, `step`, `evidence` are added by issues #4, #5, #12. */
+/** One agent tool call, as a line in the live step list and on the proof page. */
+export interface AgentStep {
+  tool: "web_search" | "read_page";
+  /** Plain language, e.g. "Reading ndtv.com…". */
+  line: string;
+  status: "running" | "done" | "failed";
+}
+
+/** Step events streamed from the Check endpoint. `cache` and `evidence` are
+ * added by issues #12 and #5. */
 export type CheckEvent =
   | { type: "understood"; claim: { original: string; canonicalEn: string } }
+  | ({ type: "step"; id: string } & AgentStep)
   | { type: "verdict"; label: VerdictLabel; oneLine: string }
   | { type: "done"; id: string }
   | { type: "error"; message: string };
