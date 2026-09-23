@@ -1,21 +1,27 @@
 "use client";
 
+import { StepStatusIcon } from "@/components/step-status-icon";
 import { Button } from "@/components/ui/button";
-import { MAX_MESSAGE_LENGTH } from "@/lib/engine/schemas.ts";
+import { MAX_MESSAGE_LENGTH, type AgentStep } from "@/lib/engine/schemas.ts";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+
+/** A line in the live step list; agent steps update in place by id. */
+type Row = { id: string; line: string; status?: AgentStep["status"] };
 
 export default function Home() {
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [running, setRunning] = useState(false);
-  const [lines, setLines] = useState<string[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   async function onCheck() {
     setRunning(true);
     setError(null);
-    setLines([]);
+    setRows([]);
+    const upsert = (row: Row) =>
+      setRows((prev) => (prev.some((r) => r.id === row.id) ? prev.map((r) => (r.id === row.id ? row : r)) : [...prev, row]));
 
     const response = await fetch("/api/check", {
       method: "POST",
@@ -49,9 +55,11 @@ export default function Home() {
         const data = JSON.parse(dataLine.slice("data: ".length));
 
         if (type === "understood") {
-          setLines((prev) => [...prev, `Found the claim: "${data.claim.canonicalEn}"`]);
+          upsert({ id: "understood", line: `Found the claim: "${data.claim.canonicalEn}"` });
+        } else if (type === "step") {
+          upsert({ id: data.id, line: data.line, status: data.status });
         } else if (type === "verdict") {
-          setLines((prev) => [...prev, `Verdict ready`]);
+          upsert({ id: "verdict", line: "Verdict ready" });
         } else if (type === "done") {
           router.push(`/check/${data.id}`);
         } else if (type === "error") {
@@ -84,10 +92,13 @@ export default function Home() {
           {running ? "Checking…" : "Check if it's true"}
         </Button>
 
-        {lines.length > 0 && (
-          <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
-            {lines.map((line, i) => (
-              <li key={i}>{line}</li>
+        {rows.length > 0 && (
+          <ul aria-live="polite" className="flex flex-col gap-1.5 text-sm text-muted-foreground">
+            {rows.map((row) => (
+              <li key={row.id} className="flex items-center gap-2">
+                {row.status && <StepStatusIcon status={row.status} />}
+                <span>{row.line}</span>
+              </li>
             ))}
           </ul>
         )}

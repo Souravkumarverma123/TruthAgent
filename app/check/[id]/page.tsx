@@ -1,3 +1,4 @@
+import { StepStatusIcon } from "@/components/step-status-icon";
 import { getResult } from "@/lib/engine/boundary.ts";
 import type { VerdictLabel } from "@/lib/engine/schemas.ts";
 
@@ -28,6 +29,9 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
       </main>
     );
   }
+
+  // Results saved before agent steps existed (issue #3) have none.
+  const steps = result.steps ?? [];
 
   return (
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-6 px-6 py-16">
@@ -62,6 +66,20 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {steps.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-sm font-medium text-muted-foreground">What TruthAgent did</h2>
+          <ol className="flex flex-col gap-1.5 text-sm text-muted-foreground">
+            {steps.map((step, i) => (
+              <li key={i} className="flex items-center gap-2">
+                <StepStatusIcon status={step.status} />
+                <span>{step.line}</span>
+              </li>
+            ))}
+          </ol>
         </section>
       )}
     </main>
