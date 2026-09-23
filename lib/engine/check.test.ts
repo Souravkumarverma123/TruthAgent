@@ -251,40 +251,35 @@ test("replay: a reasoning step citing an unknown Evidence id is dropped", async 
   assert.ok(result.verdict.reasoning.some((s) => /unsourced post/.test(s.text)), "valid steps are kept");
 });
 
+function verdictEvent(events: CheckEvent[]) {
+  const verdict = events.find((e) => e.type === "verdict");
+  assert.ok(verdict?.type === "verdict");
+  return verdict;
+}
+
 test("replay: an easy claim never escalates, and a Verdict decided by code names no model", async () => {
-  const easy = (await collect(BACHCHAN)).find((e) => e.type === "verdict");
-  assert.equal(easy?.type === "verdict" && easy.escalated, false);
+  assert.equal(verdictEvent(await collect(BACHCHAN)).escalated, false);
 
   const byCode = await collect(LAPTOP);
-  const verdict = byCode.find((e) => e.type === "verdict");
-  assert.equal(verdict?.type === "verdict" && verdict.escalated, false);
+  assert.equal(verdictEvent(byCode).escalated, false);
   assert.equal((await resultOf(byCode)).model, null);
 });
 
 test("replay: two disagreeing luna Verdicts trigger one sol Verdict, and the verdict event says it escalated", async () => {
   const events = await collect("RBI is banning ₹500 notes from 1 January, forward to all");
-  const verdict = events.find((e) => e.type === "verdict");
 
-  assert.equal(verdict?.type === "verdict" && verdict.escalated, true);
+  assert.equal(verdictEvent(events).escalated, true);
   const result = await resultOf(events);
   assert.equal(result.model, "gpt-6-sol");
   assert.equal(result.verdict.label, "false");
 });
 
-const HOSPITAL = "Amitabh Bachchan admitted to hospital in critical condition, pray for him";
+test("replay: a top-label probability under 0.7 also escalates, and if sol isn't sure either it's Not confirmed yet", async () => {
+  const events = await collect("Amitabh Bachchan admitted to hospital in critical condition, pray for him");
 
-test("replay: a top-label probability under 0.7 also escalates", async () => {
-  const events = await collect(HOSPITAL);
-  const verdict = events.find((e) => e.type === "verdict");
-
-  assert.equal(verdict?.type === "verdict" && verdict.escalated, true);
-  assert.equal((await resultOf(events)).model, "gpt-6-sol");
-});
-
-test("replay: when sol can't settle a Hard claim either, the Verdict is Not confirmed yet", async () => {
-  const events = await collect(HOSPITAL);
-  const verdict = events.find((e) => e.type === "verdict");
-
-  assert.equal(verdict?.type === "verdict" && verdict.label, "unconfirmed");
-  assert.equal((await resultOf(events)).verdict.label, "unconfirmed");
+  assert.equal(verdictEvent(events).escalated, true);
+  assert.equal(verdictEvent(events).label, "unconfirmed");
+  const result = await resultOf(events);
+  assert.equal(result.model, "gpt-6-sol");
+  assert.equal(result.verdict.label, "unconfirmed");
 });

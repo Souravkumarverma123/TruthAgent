@@ -52,12 +52,14 @@ const NOT_CONFIRMED: Result["verdict"] = {
 /** Below this, a Verdict's top label isn't sure enough: a Hard claim (CONTEXT.md). */
 const HARD_PROBABILITY = 0.7;
 
-/** Our labels, with the AVeriTeC label each maps to (docs/architecture.md §5 ⑦). */
+/** Our labels, as the Verdict prompt defines them. Internally they map to AVeriTeC's (docs/architecture.md
+ * §5 ⑦): true = Supported, false = Refuted, misleading = Conflicting Evidence/Cherrypicking,
+ * unconfirmed = Not Enough Evidence. Kept out of the prompt so the AVeriTeC wording can't pull the model. */
 const LABEL_DEFINITIONS =
-  "true (AVeriTeC Supported): the Evidence backs the core of the Claim. " +
-  "false (AVeriTeC Refuted): the core of the Claim was never true. " +
-  "misleading (AVeriTeC Conflicting Evidence/Cherrypicking): the facts are right but the framing or conclusion is wrong. " +
-  "unconfirmed (AVeriTeC Not Enough Evidence): too few Independent sources either way; never guess.";
+  "true: the Evidence backs the core of the Claim. " +
+  "false: the core of the Claim was never true. " +
+  "misleading: the facts are right but the framing or conclusion is wrong. " +
+  "unconfirmed: too few Independent sources either way; never guess.";
 
 async function liveVerdict(
   client: OpenAI,
@@ -90,11 +92,14 @@ async function liveVerdict(
   return response.output_parsed;
 }
 
+// ponytail: a Verdict whose alternatives leave out its own label counts as 0% sure, so it escalates
+// (one sol call, ~$0.03); validate the alternatives if live runs do this often.
 function topProbability(verdict: VerdictOutput): number {
   return verdict.alternatives.find((a) => a.label === verdict.label)?.probability ?? 0;
 }
 
-/** luna judges twice in parallel. A Hard claim (the runs disagree, or either is under 70% sure)
+/** luna judges twice in parallel. A Hard claim (the runs disagree, or either is under 70% sure;
+ * the third trigger, Independent sources disagreeing, is issue #8)
  * gets one sol Verdict; if sol isn't sure either, the Claim is Not confirmed yet. sol is used
  * nowhere else. Code drops any reasoning step citing an Evidence id the Check never found. */
 async function decideVerdict(
@@ -120,7 +125,7 @@ async function decideVerdict(
     verdict: {
       label: unsettled ? "unconfirmed" : decided.label,
       oneLine: unsettled
-        ? "Two quick checks and a second opinion couldn't settle this, so it isn't confirmed yet."
+        ? "Two quick verdicts and a second opinion couldn't settle this, so it isn't confirmed yet."
         : decided.one_line,
       reasoning: decided.reasoning
         .filter((step) => step.evidence_ids.every((id) => ids.has(id)))

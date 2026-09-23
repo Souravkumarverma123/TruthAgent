@@ -70,12 +70,13 @@ const TAG_TEXT: Record<ReasoningStep["tag"], string> = {
   hypothesis: "Hypothesis",
 };
 
-/** Which model decided, in words; null means code decided (no Independent source either way). */
-function decidedBy(verdict: StoredResult["verdict"], model: string | null): string {
+/** Which model decided, in words; a null model means code decided (no Independent source either way). */
+function decidedBy({ verdict, model }: StoredResult): string {
   if (model === null) return "Decided by rule: no Independent source either way.";
-  return verdict.escalated
-    ? `Decided by ${model}, the stronger model: the quick checks disagreed or weren't sure.`
-    : `Decided by ${model}.`;
+  if (!verdict.escalated) return `Decided by ${model}.`;
+  return verdict.label === "unconfirmed"
+    ? `The quick verdicts disagreed or weren't sure, and ${model}, the stronger model, wasn't sure either, so it isn't confirmed yet.`
+    : `Decided by ${model}, the stronger model: the quick verdicts disagreed or weren't sure.`;
 }
 
 function EvidenceColumn({ title, items }: { title: string; items: ShownEvidence[] }) {
@@ -192,7 +193,7 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
               {result.verdict.whatWouldChange}
             </p>
           )}
-          <p className="text-xs text-muted-foreground">{decidedBy(result.verdict, result.model)}</p>
+          <p className="text-xs text-muted-foreground">{decidedBy(result)}</p>
         </section>
       )}
 
