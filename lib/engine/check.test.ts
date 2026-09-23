@@ -1,17 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getResult } from "./boundary.ts";
-import { check, type CheckOptions } from "./check.ts";
+import { replayWorld, type Scenario, type World } from "./boundary.ts";
+import { check } from "./check.ts";
+import * as scenarios from "./scenarios.ts";
 import type { CheckEvent } from "./schemas.ts";
 
-async function collect(message: string, options?: CheckOptions): Promise<CheckEvent[]> {
+/** Which world each Check ran in, so its saved Result is read back from the same one. */
+const worlds = new WeakMap<CheckEvent[], World>();
+
+async function collect(message: string, scenario: Scenario = {}): Promise<CheckEvent[]> {
+  const world = replayWorld(scenario);
   const events: CheckEvent[] = [];
-  for await (const event of check(message, options)) events.push(event);
+  for await (const event of check(message, { world })) events.push(event);
+  worlds.set(events, world);
   return events;
 }
 
+async function getResult(events: CheckEvent[], id: string) {
+  return worlds.get(events)!.getResult(id);
+}
+
 test("replay: a Check streams understood, agent steps, evidence, verdict, done and asserts on what a user would see", async () => {
-  const events = await collect("Amitabh Bachchan has died, forward this to everyone");
+  const events = await collect("Amitabh Bachchan has died, forward this to everyone", scenarios.BACHCHAN);
 
   const types = events.map((e) => e.type);
   assert.equal(types[0], "understood");
@@ -36,7 +46,7 @@ function steps(events: CheckEvent[]) {
 }
 
 test("replay: every agent tool call streams running, then done or failed, with a plain-language line", async () => {
-  const stepEvents = steps(await collect("Amitabh Bachchan has died, forward this to everyone"));
+  const stepEvents = steps(await collect("Amitabh Bachchan has died, forward this to everyone", scenarios.BACHCHAN));
   const ids = [...new Set(stepEvents.map((s) => s.id))];
 
   assert.ok(ids.length > 0 && ids.length <= 8, "at most 8 agent steps");
@@ -50,7 +60,7 @@ test("replay: every agent tool call streams running, then done or failed, with a
 });
 
 test("replay: a failed read_page goes back to the model and the Check still finishes", async () => {
-  const events = await collect("Amitabh Bachchan has died, forward this to everyone");
+  const events = await collect("Amitabh Bachchan has died, forward this to everyone", scenarios.BACHCHAN);
   const failed = steps(events).find((s) => s.tool === "read_page" && s.status === "failed");
 
   assert.ok(failed, "a failed read_page step is shown");
@@ -60,7 +70,7 @@ test("replay: a failed read_page goes back to the model and the Check still fini
 });
 
 test("replay: read_page shows the page's published date, else the earliest Wayback copy", async () => {
-  const done = steps(await collect("Amitabh Bachchan has died, forward this to everyone")).filter(
+  const done = steps(await collect("Amitabh Bachchan has died, forward this to everyone", scenarios.BACHCHAN)).filter(
     (s) => s.tool === "read_page" && s.status === "done",
   );
 
@@ -69,7 +79,7 @@ test("replay: read_page shows the page's published date, else the earliest Wayba
 });
 
 test("replay: a page whose metadata date isn't a real day is still read", async () => {
-  const done = steps(await collect("Amitabh Bachchan has died, forward this to everyone")).filter(
+  const done = steps(await collect("Amitabh Bachchan has died, forward this to everyone", scenarios.BACHCHAN)).filter(
     (s) => s.tool === "read_page" && s.status === "done",
   );
 
@@ -77,10 +87,10 @@ test("replay: a page whose metadata date isn't a real day is still read", async 
 });
 
 test("replay: the proof page's Result keeps the agent steps as the user last saw them", async () => {
-  const events = await collect("Amitabh Bachchan has died, forward this to everyone");
+  const events = await collect("Amitabh Bachchan has died, forward this to everyone", scenarios.BACHCHAN);
   const done = events.at(-1)!;
   assert.equal(done.type, "done");
-  const result = await getResult(done.type === "done" ? done.id : "");
+  const result = await getResult(events, done.type === "done" ? done.id : "");
 
   const lastLines = new Map(steps(events).map((s) => [s.id, s.line]));
   assert.deepEqual(
@@ -93,7 +103,7 @@ test("replay: the proof page's Result keeps the agent steps as the user last saw
 async function resultOf(events: CheckEvent[]) {
   const done = events.at(-1)!;
   assert.equal(done.type, "done");
-  const result = await getResult(done.type === "done" ? done.id : "");
+  const result = await getResult(events, done.type === "done" ? done.id : "");
   assert.ok(result);
   return result;
 }
@@ -101,7 +111,7 @@ async function resultOf(events: CheckEvent[]) {
 const BACHCHAN = "Amitabh Bachchan has died, forward this to everyone";
 
 test("replay: the proof page's Evidence has For and Against sides, each item with site, tier, date, quote and Origin", async () => {
-  const result = await resultOf(await collect(BACHCHAN));
+  const result = await resultOf(await collect(BACHCHAN, scenarios.BACHCHAN));
 
   const altNews = result.evidence.find((e) => e.site === "altnews.in");
   assert.deepEqual(
@@ -128,7 +138,7 @@ test("replay: the proof page's Evidence has For and Against sides, each item wit
 });
 
 test("replay: Evidence from a blocked domain never appears", async () => {
-  const events = await collect(BACHCHAN);
+  const events = await collect(BACHCHAN, scenarios.BACHCHAN);
   const result = await resultOf(events);
 
   assert.ok(!result.evidence.some((e) => e.site.includes("mediamass")));
@@ -136,7 +146,7 @@ test("replay: Evidence from a blocked domain never appears", async () => {
 });
 
 test("replay: an `evidence` event is streamed for each accepted item, before the verdict", async () => {
-  const events = await collect(BACHCHAN);
+  const events = await collect(BACHCHAN, scenarios.BACHCHAN);
   const result = await resultOf(events);
   const evidenceEvents = events.filter((e) => e.type === "evidence");
 
@@ -148,7 +158,7 @@ test("replay: an `evidence` event is streamed for each accepted item, before the
 });
 
 test("replay: a quote not found on its page is dropped; one whose page can't be fetched is kept as 'quote not verified'", async () => {
-  const result = await resultOf(await collect(BACHCHAN));
+  const result = await resultOf(await collect(BACHCHAN, scenarios.BACHCHAN));
 
   assert.ok(!result.evidence.some((e) => e.site === "dailyroundup.example"), "invented quote dropped");
   assert.ok(!result.evidence.some((e) => e.site === "ndtv.com"), "a link that doesn't exist (404) is dropped, not kept unverified");
@@ -158,7 +168,7 @@ test("replay: a quote not found on its page is dropped; one whose page can't be 
 });
 
 test("replay: 15 sites carrying one ANI line count as 1 Independent source", async () => {
-  const result = await resultOf(await collect("RBI is banning ₹500 notes from 1 January, forward to all"));
+  const result = await resultOf(await collect("RBI is banning ₹500 notes from 1 January, forward to all", scenarios.RBI_500));
 
   assert.equal(result.evidence.length, 15);
   assert.equal(new Set(result.evidence.map((e) => e.site)).size, 15);
@@ -166,7 +176,7 @@ test("replay: 15 sites carrying one ANI line count as 1 Independent source", asy
 });
 
 test("replay: distinct Origins count as distinct Independent sources", async () => {
-  const result = await resultOf(await collect(BACHCHAN));
+  const result = await resultOf(await collect(BACHCHAN, scenarios.BACHCHAN));
 
   const origins = new Set(result.evidence.filter((e) => !e.factCheck).map((e) => e.origin));
   assert.equal(result.independentSources, origins.size);
@@ -176,7 +186,7 @@ test("replay: distinct Origins count as distinct Independent sources", async () 
 const LAPTOP = "Government is giving free laptops to all students, register today";
 
 test("replay: someone else's Fact-check is shown but is never an Independent source", async () => {
-  const events = await collect(LAPTOP);
+  const events = await collect(LAPTOP, scenarios.LAPTOP);
   const result = await resultOf(events);
 
   assert.deepEqual(
@@ -187,7 +197,7 @@ test("replay: someone else's Fact-check is shown but is never an Independent sou
 });
 
 test("replay: with no Independent source either way the Verdict is Not confirmed yet", async () => {
-  const events = await collect(LAPTOP);
+  const events = await collect(LAPTOP, scenarios.LAPTOP);
   const verdict = events.find((e) => e.type === "verdict");
 
   assert.equal(verdict?.label, "unconfirmed");
@@ -198,7 +208,7 @@ test("replay: with no Independent source either way the Verdict is Not confirmed
 });
 
 test("replay: a quote whose page writes it with a named HTML entity is kept", async () => {
-  const result = await resultOf(await collect(BACHCHAN));
+  const result = await resultOf(await collect(BACHCHAN, scenarios.BACHCHAN));
 
   // altnews.in's page has "Bachchan&rsquo;s", the quote a curly apostrophe.
   const altNews = result.evidence.find((e) => e.site === "altnews.in");
@@ -223,7 +233,7 @@ test("replay: check() needs no OPENAI_API_KEY — proof no OpenAI client is ever
   const saved = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
   try {
-    const events = await collect("Some forward");
+    const events = await collect("Some forward", scenarios.SOME_FORWARD);
     assert.ok(events.some((e) => e.type === "done"));
   } finally {
     if (saved !== undefined) process.env.OPENAI_API_KEY = saved;
@@ -231,7 +241,7 @@ test("replay: check() needs no OPENAI_API_KEY — proof no OpenAI client is ever
 });
 
 test("replay: the proof page's Verdict has tagged reasoning steps citing Evidence ids, what would change it, and the deciding model", async () => {
-  const events = await collect(BACHCHAN);
+  const events = await collect(BACHCHAN, scenarios.BACHCHAN);
   const result = await resultOf(events);
   const ids = new Set(result.evidence.map((e) => e.id));
 
@@ -246,7 +256,7 @@ test("replay: the proof page's Verdict has tagged reasoning steps citing Evidenc
 });
 
 test("replay: a reasoning step citing an unknown Evidence id is dropped", async () => {
-  const result = await resultOf(await collect(BACHCHAN));
+  const result = await resultOf(await collect(BACHCHAN, scenarios.BACHCHAN));
 
   // The recorded Verdict has a step citing E99, which this Check never found.
   assert.ok(!result.verdict.reasoning.some((s) => /hospital statement/.test(s.text)));
@@ -262,17 +272,17 @@ function verdictEvent(events: CheckEvent[]) {
 const WITHDRAWN = "RBI has withdrawn ₹2000 notes from circulation";
 
 test("replay: an easy claim never escalates, and a Verdict decided by code names no model", async () => {
-  const easy = await collect(WITHDRAWN);
+  const easy = await collect(WITHDRAWN, scenarios.WITHDRAWN_2000);
   assert.equal(verdictEvent(easy).escalated, false);
   assert.equal((await resultOf(easy)).model, "gpt-6-luna");
 
-  const byCode = await collect(LAPTOP);
+  const byCode = await collect(LAPTOP, scenarios.LAPTOP);
   assert.equal(verdictEvent(byCode).escalated, false);
   assert.equal((await resultOf(byCode)).model, null);
 });
 
 test("replay: two disagreeing luna Verdicts trigger one sol Verdict, and the verdict event says it escalated", async () => {
-  const events = await collect("RBI is banning ₹500 notes from 1 January, forward to all");
+  const events = await collect("RBI is banning ₹500 notes from 1 January, forward to all", scenarios.RBI_500);
 
   assert.equal(verdictEvent(events).escalated, true);
   const result = await resultOf(events);
@@ -281,7 +291,7 @@ test("replay: two disagreeing luna Verdicts trigger one sol Verdict, and the ver
 });
 
 test("replay: a top-label probability under 0.7 also escalates, and if sol isn't sure either it's Not confirmed yet", async () => {
-  const events = await collect("Amitabh Bachchan admitted to hospital in critical condition, pray for him");
+  const events = await collect("Amitabh Bachchan admitted to hospital in critical condition, pray for him", scenarios.HOSPITAL);
 
   assert.equal(verdictEvent(events).escalated, true);
   assert.equal(verdictEvent(events).label, "unconfirmed");
@@ -291,7 +301,7 @@ test("replay: a top-label probability under 0.7 also escalates, and if sol isn't
 });
 
 test("replay: a Not confirmed yet Verdict doesn't keep the reasoning sol gave for the label it wasn't sure of", async () => {
-  const result = await resultOf(await collect("Amitabh Bachchan admitted to hospital in critical condition, pray for him"));
+  const result = await resultOf(await collect("Amitabh Bachchan admitted to hospital in critical condition, pray for him", scenarios.HOSPITAL));
 
   // sol argued "false" at 55%; that argument no longer explains the Verdict.
   assert.deepEqual(result.verdict.reasoning, []);
@@ -300,7 +310,7 @@ test("replay: a Not confirmed yet Verdict doesn't keep the reasoning sol gave fo
 });
 
 test("replay: a luna Verdict with probabilities that don't add up isn't trusted, so it escalates", async () => {
-  const events = await collect("Amitabh Bachchan has retired from films, forward this");
+  const events = await collect("Amitabh Bachchan has retired from films, forward this", scenarios.RETIRED);
 
   assert.equal(verdictEvent(events).escalated, true);
   assert.equal((await resultOf(events)).model, "gpt-6-sol");
@@ -308,26 +318,44 @@ test("replay: a luna Verdict with probabilities that don't add up isn't trusted,
 
 test("replay: Independent sources on both sides make it a Hard claim, so sol decides", async () => {
   // A hoax post says he died, Wikipedia says he's alive; the two luna runs agree and are sure.
-  const events = await collect(BACHCHAN);
+  const events = await collect(BACHCHAN, scenarios.BACHCHAN);
 
   assert.equal(verdictEvent(events).escalated, true);
   assert.equal((await resultOf(events)).model, "gpt-6-sol");
 });
 
 test("replay: Confidence is worked out by code from the Evidence and shown with its reason in words", async () => {
-  const strong = (await resultOf(await collect(WITHDRAWN))).verdict.confidence;
+  const strong = (await resultOf(await collect(WITHDRAWN, scenarios.WITHDRAWN_2000))).verdict.confidence;
   assert.deepEqual(strong, { level: "high", reason: "2 Independent sources agree, 1 of them official." });
 
   // One of two Independent sources agrees, and it's a tier-3 site.
-  const mixed = (await resultOf(await collect(BACHCHAN))).verdict.confidence;
+  const mixed = (await resultOf(await collect(BACHCHAN, scenarios.BACHCHAN))).verdict.confidence;
   assert.deepEqual(mixed, { level: "medium", reason: "1 of 2 Independent sources agree." });
 });
 
 test("replay: a Verdict sol couldn't settle has Low Confidence, saying how the sources split", async () => {
-  const result = await resultOf(await collect("Amitabh Bachchan admitted to hospital in critical condition, pray for him"));
+  const result = await resultOf(await collect("Amitabh Bachchan admitted to hospital in critical condition, pray for him", scenarios.HOSPITAL));
 
   assert.deepEqual(result.verdict.confidence, {
     level: "low",
     reason: "Independent sources: 0 for, 1 against. Not enough to settle it.",
   });
+});
+
+test("replay: a Scenario with no answer for a step fails the Check, naming the step", async () => {
+  const events = await collect(BACHCHAN, { ...scenarios.BACHCHAN, verdicts: undefined });
+
+  const last = events.at(-1)!;
+  assert.equal(last.type, "error");
+  assert.match(last.type === "error" ? last.message : "", /verdict \(luna run 0\)/);
+  assert.ok(!events.some((e) => e.type === "done"));
+});
+
+test("replay: a Scenario with no page for a url fails the Check, naming the url, even where a page that won't load is fine", async () => {
+  const pages = Object.fromEntries(Object.entries(scenarios.BACHCHAN.pages!).filter(([url]) => !url.includes("viralnewsnow")));
+  const events = await collect(BACHCHAN, { ...scenarios.BACHCHAN, pages });
+
+  const last = events.at(-1)!;
+  assert.equal(last.type, "error");
+  assert.match(last.type === "error" ? last.message : "", /viralnewsnow\.example/);
 });

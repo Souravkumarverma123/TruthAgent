@@ -4,10 +4,9 @@
 import type OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { agentLoop } from "./agent.ts";
-import { callOpenAI, saveResult } from "./boundary.ts";
+import { defaultWorld, ReplayGap, type World } from "./boundary.ts";
 import { confidenceOf, originsBySide } from "./confidence.ts";
 import { processEvidence } from "./evidence.ts";
-import { understandFixture, verdictFixture } from "./fixtures.ts";
 import { MODELS } from "./models.ts";
 import {
   MAX_MESSAGE_LENGTH,
@@ -23,6 +22,8 @@ import {
 export interface CheckOptions {
   /** "When did you get this?" — defaults to today. Wired up by issue #9. */
   claimDate?: string;
+  /** The outside world. Tests pass a replay world; otherwise the one OUTSIDE_WORLD_MODE picks. */
+  world?: World;
 }
 
 async function liveUnderstand(client: OpenAI, message: string): Promise<Understood> {
@@ -65,14 +66,14 @@ const LABEL_DEFINITIONS =
 
 async function liveVerdict(
   client: OpenAI,
-  model: string,
+  model: keyof typeof MODELS,
   claim: string,
   claimDate: string,
   evidence: Evidence[],
   independentSources: number,
 ): Promise<VerdictOutput> {
   const response = await client.responses.parse({
-    model,
+    model: MODELS[model],
     instructions:
       `Today's date is ${new Date().toISOString().slice(0, 10)}. Judge the Claim as of ${claimDate}, ` +
       `using only the Evidence given. Labels: ${LABEL_DEFINITIONS} ` +
@@ -115,19 +116,19 @@ async function decideVerdict(
   claimDate: string,
   evidence: Evidence[],
   independentSources: number,
+  world: World,
 ): Promise<{ verdict: Result["verdict"]; model: string }> {
-  const run = (model: string, index: number) =>
-    callOpenAI({
-      fixture: verdictFixture(claim, model, index),
-      live: (client) => liveVerdict(client, model, claim, claimDate, evidence, independentSources),
-    });
-  const [first, second] = await Promise.all([run(MODELS.luna, 0), run(MODELS.luna, 1)]);
+  const run = (model: keyof typeof MODELS, index: number) =>
+    world.openai({ step: "verdict", model, run: index }, (client) =>
+      liveVerdict(client, model, claim, claimDate, evidence, independentSources),
+    );
+  const [first, second] = await Promise.all([run("luna", 0), run("luna", 1)]);
   const sides = originsBySide(evidence);
   const escalated =
     first.label !== second.label ||
     Math.min(topProbability(first), topProbability(second)) < HARD_PROBABILITY ||
     (sides.supports.size > 0 && sides.contradicts.size > 0);
-  const decided = escalated ? await run(MODELS.sol, 0) : first;
+  const decided = escalated ? await run("sol", 0) : first;
   const unsettled = escalated && topProbability(decided) < HARD_PROBABILITY;
 
   const model = escalated ? MODELS.sol : MODELS.luna;
@@ -176,26 +177,25 @@ export async function* check(message: string, options: CheckOptions = {}): Async
   }
 
   const claimDate = options.claimDate ?? new Date().toISOString().slice(0, 10);
+  const world = options.world ?? defaultWorld(message);
 
   try {
-    const understood = await callOpenAI({
-      fixture: understandFixture(message),
-      live: (client) => liveUnderstand(client, message),
-    });
+    const understood = await world.openai({ step: "understand" }, (client) => liveUnderstand(client, message));
     const claim = understood.main_claim;
     yield { type: "understood", claim: { original: claim.original, canonicalEn: claim.canonical_en } };
 
     const { candidates, steps, pages } = yield* agentLoop(
       { canonicalEn: claim.canonical_en, claimType: claim.claim_type },
       claimDate,
+      world,
     );
-    const { evidence, independentSources } = yield* processEvidence(candidates, pages);
+    const { evidence, independentSources } = yield* processEvidence(candidates, pages, world);
 
     // Decided by code when nothing independent backs either side, so no model call is spent on it.
     const { verdict, model } =
       independentSources === 0
         ? { verdict: NOT_CONFIRMED, model: null }
-        : await decideVerdict(claim.canonical_en, claimDate, evidence, independentSources);
+        : await decideVerdict(claim.canonical_en, claimDate, evidence, independentSources, world);
     yield { type: "verdict", label: verdict.label, oneLine: verdict.oneLine, escalated: verdict.escalated };
 
     const result: Result = {
@@ -209,9 +209,11 @@ export async function* check(message: string, options: CheckOptions = {}): Async
       independentSources,
       steps,
     };
-    await saveResult(result);
+    await world.saveResult(result);
     yield { type: "done", id: result.id };
-  } catch {
-    yield { type: "error", message: "Something went wrong while checking this. Please try again." };
+  } catch (error) {
+    // Only replay has gaps, so only dev and tests ever see this message.
+    const message = error instanceof ReplayGap ? error.message : "Something went wrong while checking this. Please try again.";
+    yield { type: "error", message };
   }
 }

@@ -1,7 +1,6 @@
 // Our function tools, run by the agent loop (agent.ts). Every fetch goes
-// through the outside-world boundary, so replay mode covers them at $0.
-import { fetchText, waybackCdxUrl } from "./boundary.ts";
-import { pageFixture } from "./fixtures.ts";
+// through the Check's World, so replay mode covers them at $0.
+import { tolerate, waybackCdxUrl, type World } from "./boundary.ts";
 import { isBlocked } from "./sources.ts";
 
 /** Per tool call (the Wayback lookup shares it with the page fetch). */
@@ -37,9 +36,8 @@ function publishedDateFromPage(html: string): string | null {
   return toDay(/"datePublished"\s*:\s*"([^"]+)"/.exec(html)?.[1]);
 }
 
-async function earliestWaybackDay(url: string, signal: AbortSignal): Promise<string | null> {
-  const cdx = waybackCdxUrl(url);
-  const rows: string[][] = JSON.parse(await fetchText(cdx, { signal, fixture: pageFixture(cdx) }));
+async function earliestWaybackDay(world: World, url: string, signal: AbortSignal): Promise<string | null> {
+  const rows: string[][] = JSON.parse(await world.fetchText(waybackCdxUrl(url), signal));
   const timestamp = rows[1]?.[0];
   if (!timestamp) return null;
   return calendarDay(`${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)}`);
@@ -132,7 +130,7 @@ export interface Page {
  * it may exist but couldn't be read just now (timeout, 403, 5xx). */
 export type PageRead = Page | "dead" | "unreachable";
 
-export function failedRead(error: unknown): "dead" | "unreachable" {
+export const failedRead = tolerate((error): "dead" | "unreachable" => {
   if (!(error instanceof Error)) return "unreachable";
   const code = (error as NodeJS.ErrnoException).code;
   const dead =
@@ -140,15 +138,15 @@ export function failedRead(error: unknown): "dead" | "unreachable" {
     code === "ERR_INVALID_URL" ||
     /^HTTP (404|410)$|^Not a public web page$|block list/.test(error.message);
   return dead ? "dead" : "unreachable";
-}
+});
 
 /** The `read_page` tool: page text plus a published date, from the page itself else the earliest Wayback copy. */
-export async function readPage(url: string): Promise<Page> {
+export async function readPage(world: World, url: string): Promise<Page> {
   if (isBlocked(new URL(url).hostname)) throw new Error("This site is on the block list");
   const signal = AbortSignal.timeout(TOOL_MS);
-  const html = await fetchText(url, { signal, fixture: pageFixture(url) });
+  const html = await world.fetchText(url, signal);
   const fromPage = publishedDateFromPage(html);
-  const fromWayback = fromPage ? null : await earliestWaybackDay(url, signal).catch(() => null);
+  const fromWayback = fromPage ? null : await earliestWaybackDay(world, url, signal).catch(tolerate(() => null));
   return {
     url,
     published: fromPage ?? fromWayback,

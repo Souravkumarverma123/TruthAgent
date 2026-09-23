@@ -48,6 +48,17 @@ export type EvidenceCandidate = z.infer<typeof EvidenceCandidateSchema>;
 /** Structured output the agent loop ends with: its Evidence candidates. */
 export const EvidenceCandidatesSchema = z.object({ evidence: z.array(EvidenceCandidateSchema) });
 
+/** One agent model turn, reduced to what the loop needs (agent.ts). Replay Scenarios hold these. */
+export interface AgentTurn {
+  responseId: string;
+  /** Hosted web searches the model ran during this turn. */
+  searches: { query: string; failed: boolean }[];
+  /** Our function tools the model wants run. */
+  calls: { callId: string; name: string; arguments: string }[];
+  /** Set once the model stops calling tools. */
+  evidence: EvidenceCandidate[] | null;
+}
+
 /** Structured output of Origin tagging (one luna call over all accepted Evidence): Evidence grouped
  * by Origin, so one wire story is one group whatever it's called. */
 export const OriginsSchema = z.object({

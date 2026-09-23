@@ -11,12 +11,12 @@ import type {
   ToolChoiceOptions,
   WebSearchTool,
 } from "openai/resources/responses/responses";
-import { callOpenAI } from "./boundary.ts";
-import { agentTurnFixture } from "./fixtures.ts";
+import type { World } from "./boundary.ts";
 import { MODELS } from "./models.ts";
 import {
   EvidenceCandidatesSchema,
   type AgentStep,
+  type AgentTurn,
   type CheckEvent,
   type ClaimType,
   type EvidenceCandidate,
@@ -35,17 +35,6 @@ const TURN_MS = 25_000;
  * ponytail: the model sees only a page's first 6,000 chars, so it can't quote
  * deeper; send the part around the claim's keywords if Evidence goes missing. */
 const PAGE_TEXT_CHARS = 6_000;
-
-/** One model turn, reduced to what the loop needs. Replay fixtures use this shape. */
-export interface AgentTurn {
-  responseId: string;
-  /** Hosted web searches the model ran during this turn. */
-  searches: { query: string; failed: boolean }[];
-  /** Our function tools the model wants run. */
-  calls: { callId: string; name: string; arguments: string }[];
-  /** Set once the model stops calling tools. */
-  evidence: EvidenceCandidate[] | null;
-}
 
 const READ_PAGE_TOOL: FunctionTool = {
   type: "function",
@@ -162,6 +151,7 @@ export interface AgentOutcome {
 export async function* agentLoop(
   claim: { canonicalEn: string; claimType: ClaimType },
   claimDate: string,
+  world: World,
 ): AsyncGenerator<CheckEvent, AgentOutcome> {
   const prompt = instructions(claim.claimType, claimDate);
   const deadline = Date.now() + TOTAL_MS;
@@ -181,10 +171,9 @@ export async function* agentLoop(
   for (let turnIndex = 0; turnIndex <= MAX_STEPS; turnIndex++) {
     const toolsAllowed = !outOfBudget();
     const searchesLeft = toolsAllowed ? Math.min(MAX_SEARCHES - searches, MAX_STEPS - steps.size) : 0;
-    const turn = await callOpenAI({
-      fixture: agentTurnFixture(claim.canonicalEn, turnIndex),
-      live: (client) => liveTurn(client, { instructions: prompt, input, previousResponseId, toolsAllowed, searchesLeft }),
-    });
+    const turn = await world.openai({ step: "agentTurn", turn: turnIndex }, (client) =>
+      liveTurn(client, { instructions: prompt, input, previousResponseId, toolsAllowed, searchesLeft }),
+    );
 
     // Hosted searches already ran inside the model call, so they show as running and done together.
     // ponytail: stream the Responses call to show "Searching…" while it runs, if the wait feels dead.
@@ -219,7 +208,7 @@ export async function* agentLoop(
         const site = siteName(url);
         yield step(id, { tool: "read_page", line: `Reading ${site}…`, status: "running" });
         try {
-          const page = await readPage(url);
+          const page = await readPage(world, url);
           pages.set(url, page);
           output = { ...page, text: page.text.slice(0, PAGE_TEXT_CHARS) };
           yield step(id, { tool: "read_page", line: `Read ${site}${dateNote(page)}`, status: "done" });
