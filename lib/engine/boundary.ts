@@ -1,6 +1,6 @@
-// The outside-world boundary: every call to OpenAI, Redis or a web page goes through here.
-// Two modes, per AGENTS.md: `live` (real calls, costs money) and `replay`
-// (canned data, $0, no network). Replay is the default in dev and tests.
+// The outside-world boundary: every call to OpenAI, Redis or a web page goes through a World.
+// Two adapters, per AGENTS.md: `liveWorld` (real calls, costs money) and `replayWorld(scenario)`
+// (whole answers from a Scenario, $0, no network). Replay is the default in dev and tests.
 import { Redis } from "@upstash/redis";
 import { lookup as dnsLookup } from "node:dns";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -9,31 +9,107 @@ import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 import { join } from "node:path";
 import OpenAI from "openai";
-import type { Result } from "./schemas.ts";
+import type { AgentTurn, OriginsOutput, Result, Understood, VerdictOutput } from "./schemas.ts";
 
 export function outsideWorldMode(): "live" | "replay" {
   return process.env.OUTSIDE_WORLD_MODE === "live" ? "live" : "replay";
+}
+
+/** Which OpenAI step is asking. Replay answers by this; live ignores it. */
+export type Ask =
+  | { step: "understand" }
+  | { step: "agentTurn"; turn: number }
+  | { step: "origins" }
+  | { step: "verdict"; model: "luna" | "sol"; run: number };
+
+interface Answers {
+  understand: Understood;
+  agentTurn: AgentTurn;
+  origins: OriginsOutput;
+  verdict: VerdictOutput;
+}
+
+/** Everything outside the Engine. A Check is given one (check.ts). */
+export interface World {
+  /** One OpenAI call: `live` builds and sends the request; replay answers `ask` instead. */
+  openai<A extends Ask>(ask: A, live: (client: OpenAI) => Promise<Answers[A["step"]]>): Promise<Answers[A["step"]]>;
+  /** A web page (or Wayback API) as text; an HTTP error status throws `HTTP <status>`. */
+  fetchText(url: string, signal: AbortSignal): Promise<string>;
+  saveResult(result: Result): Promise<void>;
+  getResult(id: string): Promise<Result | null>;
+}
+
+/**
+ * Whole answers from the outside world for one Check, per step. A request it doesn't cover
+ * throws a `ReplayGap`: no recording, no answer.
+ *
+ * ponytail: whole answers picked by step, not recordings keyed by request hash. Upgrade to
+ * hash-keyed recordings (docs/architecture.md §7) when writing Scenarios by hand stops scaling.
+ */
+export interface Scenario {
+  understand?: Understood;
+  agentTurns?: AgentTurn[];
+  /** url → body, or an HTTP error status. Wayback lookups are urls too (`waybackCdxUrl`). */
+  pages?: Record<string, string | number>;
+  origins?: OriginsOutput;
+  verdicts?: { luna?: [VerdictOutput, VerdictOutput]; sol?: VerdictOutput };
+}
+
+/** A replay request the Scenario has no answer for: a broken test, never a failed outside call,
+ * so code that tolerates outside failures (a page that won't load) rethrows it. */
+export class ReplayGap extends Error {
+  constructor(what: string) {
+    super(`Replay has no answer for ${what}. Add it to the Scenario (lib/engine/scenarios.ts), or run live.`);
+  }
+}
+
+function replayAnswer(scenario: Scenario, ask: Ask): { answer: unknown; what: string } {
+  switch (ask.step) {
+    case "understand":
+      return { answer: scenario.understand, what: "understand" };
+    case "agentTurn":
+      return { answer: scenario.agentTurns?.[ask.turn], what: `agent turn ${ask.turn}` };
+    case "origins":
+      return { answer: scenario.origins, what: "origins" };
+    case "verdict":
+      return ask.model === "sol"
+        ? { answer: scenario.verdicts?.sol, what: "verdict (sol)" }
+        : { answer: scenario.verdicts?.luna?.[ask.run], what: `verdict (luna run ${ask.run})` };
+  }
+}
+
+type ResultStore = Pick<World, "saveResult" | "getResult">;
+
+/** Results in memory, per world: tests leave nothing behind, and no Check reads another's Results. */
+function memoryResults(): ResultStore {
+  const saved = new Map<string, Result>();
+  return {
+    saveResult: async (result) => void saved.set(result.id, result),
+    getResult: async (id) => saved.get(id) ?? null,
+  };
+}
+
+export function replayWorld(scenario: Scenario, results: ResultStore = memoryResults()): World {
+  return {
+    async openai<A extends Ask>(ask: A) {
+      const { answer, what } = replayAnswer(scenario, ask);
+      if (answer === undefined) throw new ReplayGap(what);
+      return answer as Answers[A["step"]];
+    },
+    async fetchText(url) {
+      const page = scenario.pages?.[url];
+      if (page === undefined) throw new ReplayGap(url);
+      if (typeof page === "number") throw new Error(`HTTP ${page}`);
+      return page;
+    },
+    ...results,
+  };
 }
 
 let openaiClient: OpenAI | undefined;
 function client(): OpenAI {
   if (!openaiClient) openaiClient = new OpenAI();
   return openaiClient;
-}
-
-/**
- * Runs one OpenAI call through the boundary. In replay mode, `fixture` is
- * returned with no network call and no cost; in live mode, `live` runs
- * against the real API.
- *
- * ponytail: replay mode returns the fixture the caller picked (fixtures.ts
- * picks by scenario: which claim, which model, which run), not a
- * request-hash-keyed recording. Upgrade to hash-keyed fixtures
- * (docs/architecture.md §7) when picking by claim text stops scaling.
- */
-export async function callOpenAI<T>(params: { fixture: T; live: (client: OpenAI) => Promise<T> }): Promise<T> {
-  if (outsideWorldMode() === "replay") return params.fixture;
-  return params.live(client());
 }
 
 /** Only public websites: `url` is chosen by the model, so no IP literals,
@@ -151,25 +227,13 @@ function requestPage(url: URL, signal: AbortSignal): Promise<PageResponse> {
   });
 }
 
-/**
- * Fetches a web page (or Wayback API) as text. In replay mode, `fixture` is
- * the recorded body for this exact URL, or its HTTP error status; no
- * recording means the fetch fails, just like an unreachable page would live.
- */
-export async function fetchText(
-  url: string,
-  params: { signal: AbortSignal; fixture: string | number | undefined },
-): Promise<string> {
-  if (outsideWorldMode() === "replay") {
-    if (params.fixture === undefined) throw new Error(`No replay recording for ${url}`);
-    if (typeof params.fixture === "number") throw new Error(`HTTP ${params.fixture}`);
-    return params.fixture;
-  }
+/** A web page (or Wayback API) as text, from the real web. */
+async function fetchLive(url: string, signal: AbortSignal): Promise<string> {
   // Redirects are followed by hand so every hop gets the public-URL check.
   let current = new URL(url);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     if (!isPublicHttpUrl(current)) throw new Error("Not a public web page");
-    const response = await requestPage(current, params.signal);
+    const response = await requestPage(current, signal);
     if (response.status >= 300 && response.status < 400 && response.location) {
       current = new URL(response.location, current);
       continue;
@@ -188,13 +252,21 @@ function redis(): Redis {
   return redisClient;
 }
 
-// ponytail: replay mode keeps Results as JSON files under .data/results
-// instead of real Redis, so dev and tests need no Upstash credentials and
-// cost $0. A plain in-memory Map isn't enough here — Next.js's dev server
-// runs route handlers and Server Components in separate module graphs, so
-// a module-level Map saved by the Check endpoint isn't the same Map the
-// proof page reads. A file survives that. No TTL/expiry in replay mode;
-// live mode (real Redis, 30-day TTL) is what deploys to Vercel.
+const redisResults: ResultStore = {
+  async saveResult(result) {
+    await redis().set(`result:${result.id}`, result, { ex: RESULT_TTL_SECONDS });
+  },
+  async getResult(id) {
+    return (await redis().get<Result>(`result:${id}`)) ?? null;
+  },
+};
+
+// ponytail: the dev server's replay world keeps Results as JSON files under .data/results
+// instead of real Redis, so dev needs no Upstash credentials and costs $0. A plain in-memory
+// Map isn't enough here — Next.js's dev server runs route handlers and Server Components in
+// separate module graphs, so a module-level Map saved by the Check endpoint isn't the same Map
+// the proof page reads. A file survives that. No TTL/expiry; live mode (real Redis, 30-day TTL)
+// is what deploys to Vercel. Tests use memoryResults, so nothing piles up here.
 const REPLAY_RESULTS_DIR = join(process.cwd(), ".data", "results");
 
 async function replayResultPath(id: string): Promise<string> {
@@ -202,21 +274,16 @@ async function replayResultPath(id: string): Promise<string> {
   return join(REPLAY_RESULTS_DIR, `${id}.json`);
 }
 
-export async function saveResult(result: Result): Promise<void> {
-  if (outsideWorldMode() === "replay") {
-    await writeFile(await replayResultPath(result.id), JSON.stringify(result));
-    return;
-  }
-  await redis().set(`result:${result.id}`, result, { ex: RESULT_TTL_SECONDS });
-}
-
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export async function getResult(id: string): Promise<Result | null> {
-  if (outsideWorldMode() === "replay") {
+const fileResults: ResultStore = {
+  async saveResult(result) {
+    await writeFile(await replayResultPath(result.id), JSON.stringify(result));
+  },
+  async getResult(id) {
     // `id` comes straight from the proof page's URL, and becomes a file
     // path below — reject anything that isn't the crypto.randomUUID()
-    // shape saveResult() produces, so a path like "../../etc/passwd" can't
+    // shape a Check produces, so a path like "../../etc/passwd" can't
     // escape .data/results.
     if (!UUID_RE.test(id)) return null;
     try {
@@ -224,7 +291,32 @@ export async function getResult(id: string): Promise<Result | null> {
     } catch {
       return null;
     }
-  }
-  const stored = await redis().get<Result>(`result:${id}`);
-  return stored ?? null;
+  },
+};
+
+export const liveWorld: World = {
+  openai: (_ask, live) => live(client()),
+  fetchText: fetchLive,
+  ...redisResults,
+};
+
+/** globalThis, not a module variable: instrumentation.ts and the route handler are separate module graphs. */
+const DEMO_SCENARIOS_KEY = Symbol.for("truthagent.demoScenarios");
+
+/** The dev server's replay answers, by Message. Set at server start by instrumentation.ts, so
+ * the Engine never imports Scenario data. */
+export function setDemoScenarios(scenarios: Record<string, Scenario>): void {
+  (globalThis as Record<symbol, unknown>)[DEMO_SCENARIOS_KEY] = scenarios;
+}
+
+/** The world a Check gets when none is given: live, or replay of the demo Scenario for this Message. */
+export function defaultWorld(message: string): World {
+  if (outsideWorldMode() === "live") return liveWorld;
+  const demos = (globalThis as Record<symbol, Record<string, Scenario> | undefined>)[DEMO_SCENARIOS_KEY];
+  return replayWorld(demos?.[message.trim()] ?? {}, fileResults);
+}
+
+/** The proof page's read of a saved Result, from the store the default world saves to. */
+export function getResult(id: string): Promise<Result | null> {
+  return (outsideWorldMode() === "live" ? redisResults : fileResults).getResult(id);
 }
