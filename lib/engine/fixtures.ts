@@ -22,6 +22,12 @@ const INVENTED_LINK = "https://www.ndtv.com/entertainment/amitabh-bachchan-dies-
 /** On the block list: never Evidence. */
 const MEDIAMASS = "https://en.mediamass.net/people/amitabh-bachchan/deathhoax.html";
 
+/** A third scenario: the only thing found is someone else's Fact-check, a lead and never an
+ * Independent source, so the Claim stays Not confirmed yet. */
+const LAPTOP_CLAIM = /laptop/i;
+const BOOM = "https://www.boomlive.in/fact-check/free-laptop-scheme-message-is-false";
+const BOOM_LINE = "There is no such free laptop scheme; the message circulating is false.";
+
 /** A second scenario: one ANI line carried by 15 sites, cited from search without reading. */
 const RBI_CLAIM = /₹500/;
 const ANI_LINE =
@@ -36,6 +42,14 @@ const ANI_SITES = Array.from({ length: 15 }, (_, i) => `https://news${i + 1}.exa
  * fails), then Evidence that includes a blocked site and an invented quote.
  */
 export function agentTurnFixture(claim: string, turnIndex: number): AgentTurn {
+  if (LAPTOP_CLAIM.test(claim)) {
+    return {
+      responseId: "resp_replay_laptop",
+      searches: [{ query: "free laptop scheme fact check", failed: false }],
+      calls: [],
+      evidence: [{ url: BOOM, quote: BOOM_LINE, stance: "contradicts" }],
+    };
+  }
   if (RBI_CLAIM.test(claim)) {
     return {
       responseId: "resp_replay_rbi",
@@ -90,10 +104,14 @@ export function agentTurnFixture(claim: string, turnIndex: number): AgentTurn {
 /** Recorded bodies, keyed by the exact URL fetched (pages and Wayback CDX lookups). A number is an HTTP error status. */
 const RECORDED_PAGES: Record<string, string | number> = {
   [INVENTED_LINK]: 404,
+  // The apostrophe is written as the named reference a news page would use, not the numeric one.
   [ALT_NEWS]:
     '<html><head><meta property="article:published_time" content="2024-03-12T10:30:00+05:30"></head>' +
-    "<body><article><p>This is not the first time such a rumour about Amitabh Bachchan&#39;s death has gone viral.</p>" +
+    "<body><article><p>This is not the first time such a rumour about Amitabh Bachchan&rsquo;s death has gone viral.</p>" +
     "</article></body></html>",
+  [BOOM]:
+    '<html><head><meta property="article:published_time" content="2026-01-20"></head>' +
+    `<body><p>${BOOM_LINE}</p></body></html>`,
   [WIKIPEDIA]:
     "<html><head><title>Amitabh Bachchan - Wikipedia</title></head>" +
     "<body><p>Amitabh Bachchan (born 11 October 1942) is an Indian actor, film producer and television host.</p></body></html>",
@@ -118,6 +136,7 @@ export function pageFixture(url: string): string | number | undefined {
 /** What the Origin tagger answers, by url. */
 const ORIGINS: Record<string, string> = {
   [ALT_NEWS]: "Alt News's own reporting",
+  [BOOM]: "BOOM's own fact-check",
   [WIKIPEDIA]: "Wikipedia's article",
   [HOAX_SITE]: "viralnewsnow.example's unsourced post",
   ...Object.fromEntries(ANI_SITES.map((url) => [url, "ANI wire"])),

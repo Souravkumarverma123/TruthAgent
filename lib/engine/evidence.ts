@@ -8,7 +8,7 @@ import { callOpenAI } from "./boundary.ts";
 import { originFixture } from "./fixtures.ts";
 import { MODELS } from "./models.ts";
 import { OriginsSchema, type CheckEvent, type Evidence, type EvidenceCandidate, type OriginsOutput } from "./schemas.ts";
-import { isBlocked, tierOf } from "./sources.ts";
+import { isBlocked, isFactChecker, tierOf } from "./sources.ts";
 import { failedRead, readPage, type PageRead } from "./tools.ts";
 
 /** Page text the Origin tagger sees per item: the top, where wire credits like "(ANI)" sit.
@@ -17,6 +17,24 @@ import { failedRead, readPage, type PageRead } from "./tools.ts";
 const ORIGIN_CONTEXT_CHARS = 1_500;
 /** Shorter quotes, like a bare name, would match almost any page on the topic. */
 const MIN_QUOTE_WORDS = 4;
+/** The model picks the urls, so a chatty turn could ask for a socket per candidate. */
+const MAX_PARALLEL_READS = 6;
+
+/** Runs at most `max` tasks at a time, the rest waiting their turn. */
+function limiter(max: number) {
+  let running = 0;
+  const waiting: (() => void)[] = [];
+  return async <T>(task: () => Promise<T>): Promise<T> => {
+    if (running >= max) await new Promise<void>((resume) => waiting.push(resume));
+    running++;
+    try {
+      return await task();
+    } finally {
+      running--;
+      waiting.shift()?.();
+    }
+  };
+}
 
 /** Case, spacing, and curly vs straight quotes and dashes don't count against a quote. */
 function normalize(text: string): string {
@@ -71,11 +89,17 @@ export async function* processEvidence(
   candidates: EvidenceCandidate[],
   pagesRead: Map<string, PageRead>,
 ): AsyncGenerator<CheckEvent, { evidence: Evidence[]; independentSources: number }> {
-  // Pages the agent didn't read are fetched now, in parallel.
+  // Pages the agent didn't read are fetched now, a few at a time.
   const reads = new Map<string, Promise<PageRead>>();
+  const readSlot = limiter(MAX_PARALLEL_READS);
   const read = (url: string) => {
     if (!reads.has(url)) {
-      reads.set(url, pagesRead.has(url) ? Promise.resolve(pagesRead.get(url)!) : readPage(url).catch(failedRead));
+      reads.set(
+        url,
+        pagesRead.has(url)
+          ? Promise.resolve(pagesRead.get(url)!)
+          : readSlot(() => readPage(url)).catch(failedRead),
+      );
     }
     return reads.get(url)!;
   };
@@ -105,6 +129,7 @@ export async function* processEvidence(
       quoteVerified: page !== null,
       stance: candidate.stance,
       origin: null,
+      factCheck: isFactChecker(candidate.hostname),
     };
     accepted.push(item);
     pageStart.set(item.id, page?.text.slice(0, ORIGIN_CONTEXT_CHARS) ?? "");
@@ -122,13 +147,17 @@ export async function* processEvidence(
       ),
   }).catch((): OriginsOutput => ({ origins: [] }));
 
-  // Each group is one Independent source; an id claimed twice keeps its first group, unknown ids are ignored.
+  // Each group is one Independent source; an id claimed twice keeps its first group, unknown ids
+  // and groups with no Origin named are ignored. A group of nothing but Fact-checks is a repeat of
+  // someone else's verdict, so it is a lead, not an Independent source (CONTEXT.md "Fact-check").
   const originById = new Map<string, string>();
   let independentSources = 0;
   for (const group of tagged.origins) {
+    const origin = group.origin.trim();
     const ids = group.evidence_ids.filter((id) => accepted.some((e) => e.id === id) && !originById.has(id));
-    for (const id of ids) originById.set(id, group.origin.trim());
-    if (ids.length > 0) independentSources++;
+    if (!origin || ids.length === 0) continue;
+    for (const id of ids) originById.set(id, origin);
+    if (ids.some((id) => !accepted.find((e) => e.id === id)!.factCheck)) independentSources++;
   }
   // ponytail: an item the tagger leaves out gets no Origin and isn't counted, erring towards
   // "Not confirmed yet"; count each as its own Origin if that under-counts in the accuracy run.

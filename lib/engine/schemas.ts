@@ -74,6 +74,9 @@ export interface Evidence {
   stance: "supports" | "contradicts";
   /** Where the information first comes from, e.g. "ANI wire"; null if untagged. */
   origin: string | null;
+  /** Published by a fact-checking organisation: a lead, so never an Independent
+   * source (CONTEXT.md "Fact-check"). Its own box is issue #6. */
+  factCheck: boolean;
 }
 
 /** Structured output of the Verdict step (one call, luna, over the agent's Evidence). */

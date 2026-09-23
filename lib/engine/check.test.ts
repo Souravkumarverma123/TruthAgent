@@ -115,6 +115,7 @@ test("replay: the proof page's Evidence has For and Against sides, each item wit
       quoteVerified: true,
       stance: "contradicts",
       origin: "Alt News's own reporting",
+      factCheck: true,
       url: undefined,
     },
   );
@@ -167,8 +168,39 @@ test("replay: 15 sites carrying one ANI line count as 1 Independent source", asy
 test("replay: distinct Origins count as distinct Independent sources", async () => {
   const result = await resultOf(await collect(BACHCHAN));
 
-  assert.equal(result.independentSources, new Set(result.evidence.map((e) => e.origin)).size);
+  const origins = new Set(result.evidence.filter((e) => !e.factCheck).map((e) => e.origin));
+  assert.equal(result.independentSources, origins.size);
   assert.ok(result.independentSources >= 2);
+});
+
+const LAPTOP = "Government is giving free laptops to all students, register today";
+
+test("replay: someone else's Fact-check is shown but is never an Independent source", async () => {
+  const events = await collect(LAPTOP);
+  const result = await resultOf(events);
+
+  assert.deepEqual(
+    result.evidence.map((e) => ({ site: e.site, factCheck: e.factCheck })),
+    [{ site: "boomlive.in", factCheck: true }],
+  );
+  assert.equal(result.independentSources, 0);
+});
+
+test("replay: with no Independent source either way the Verdict is Not confirmed yet", async () => {
+  const events = await collect(LAPTOP);
+  const verdict = events.find((e) => e.type === "verdict");
+
+  assert.equal(verdict?.label, "unconfirmed");
+  assert.equal((await resultOf(events)).verdict.label, "unconfirmed");
+});
+
+test("replay: a quote whose page writes it with a named HTML entity is kept", async () => {
+  const result = await resultOf(await collect(BACHCHAN));
+
+  // altnews.in's page has "Bachchan&rsquo;s", the quote a curly apostrophe.
+  const altNews = result.evidence.find((e) => e.site === "altnews.in");
+  assert.match(altNews?.quote ?? "", /Bachchan’s death/);
+  assert.equal(altNews?.quoteVerified, true);
 });
 
 test("replay: text over 2,000 characters is rejected with a friendly error event", async () => {

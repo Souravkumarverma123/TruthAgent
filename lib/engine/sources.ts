@@ -34,10 +34,9 @@ const TIER_1 = [
   "crossref.org",
 ];
 
-/** Tier 2: fact-checkers and major outlets, incl. the news agencies. Wikipedia is left at tier 3:
- * it can be edited during a rumour (trusted-sources.md §8). */
-const TIER_2 = [
-  // Fact-checkers
+/** Fact-checking organisations: what they publish is someone else's verdict, a lead
+ * (CONTEXT.md "Fact-check"). Kept at tier 2, but never an Independent source. */
+export const FACT_CHECKERS = [
   "boomlive.in",
   "factly.in",
   "newschecker.in",
@@ -49,6 +48,16 @@ const TIER_2 = [
   "snopes.com",
   "politifact.com",
   "fullfact.org",
+];
+
+export function isFactChecker(hostname: string): boolean {
+  return matches(hostname, FACT_CHECKERS);
+}
+
+/** Tier 2: fact-checkers and major outlets, incl. the news agencies. Wikipedia is left at tier 3:
+ * it can be edited during a rumour (trusted-sources.md §8). */
+const TIER_2 = [
+  ...FACT_CHECKERS,
   // News agencies and major outlets
   "prsindia.org",
   "reuters.com",

@@ -1,6 +1,7 @@
 import { StepStatusIcon } from "@/components/step-status-icon";
 import { getResult } from "@/lib/engine/boundary.ts";
-import type { Evidence, Tier, VerdictLabel } from "@/lib/engine/schemas.ts";
+import type { Evidence, Result, Tier, VerdictLabel } from "@/lib/engine/schemas.ts";
+import { isFactChecker, tierOf } from "@/lib/engine/sources.ts";
 
 const LABEL_TEXT: Record<VerdictLabel, string> = {
   true: "True",
@@ -24,7 +25,44 @@ const TIER_TEXT: Record<Tier, string> = {
 
 const DAY_FORMAT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
-function EvidenceColumn({ title, items }: { title: string; items: Evidence[] }) {
+/** Saved Results last 30 days, so a proof page can be asked for one saved before a field
+ * existed. What's there is shown; what isn't is worked out from the url or left out. */
+type StoredResult = Omit<Result, "evidence" | "independentSources" | "steps"> & {
+  evidence?: (Partial<Evidence> & { url: string; quote: string })[];
+  independentSources?: number;
+  steps?: Result["steps"];
+};
+
+/** A stance we don't know is the honest answer for older Evidence: it's shown, just not on a side. */
+type ShownEvidence = Omit<Evidence, "stance"> & { stance: Evidence["stance"] | null };
+
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+function shownEvidence(stored: StoredResult["evidence"]): ShownEvidence[] {
+  return (stored ?? []).map((item, i) => {
+    const hostname = hostnameOf(item.url);
+    return {
+      id: item.id ?? `E${i + 1}`,
+      url: item.url,
+      site: item.site ?? hostname.replace(/^www\./, ""),
+      tier: item.tier ?? tierOf(hostname),
+      date: item.date ?? null,
+      quote: item.quote,
+      quoteVerified: item.quoteVerified !== false,
+      stance: item.stance === "supports" || item.stance === "contradicts" ? item.stance : null,
+      origin: item.origin ?? null,
+      factCheck: item.factCheck ?? isFactChecker(hostname),
+    };
+  });
+}
+
+function EvidenceColumn({ title, items }: { title: string; items: ShownEvidence[] }) {
   return (
     <section className="flex flex-col gap-3">
       <h3 className="text-sm font-medium text-muted-foreground">
@@ -52,6 +90,11 @@ function EvidenceColumn({ title, items }: { title: string; items: Evidence[] }) 
                 {TIER_TEXT[item.tier]} · {item.date ? DAY_FORMAT.format(new Date(item.date)) : "No date found"}
               </p>
               <p className="text-xs text-muted-foreground">Origin: {item.origin ?? "not identified"}</p>
+              {item.factCheck && (
+                <p className="text-xs text-muted-foreground">
+                  Someone else&apos;s fact-check: a lead, not an Independent source
+                </p>
+              )}
             </li>
           ))}
         </ul>
@@ -62,7 +105,7 @@ function EvidenceColumn({ title, items }: { title: string; items: Evidence[] }) 
 
 export default async function ProofPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const result = await getResult(id);
+  const result: StoredResult | null = await getResult(id);
 
   if (!result) {
     return (
@@ -76,6 +119,8 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
 
   // Results saved before agent steps existed (issue #3) have none.
   const steps = result.steps ?? [];
+  const evidence = shownEvidence(result.evidence);
+  const unsorted = evidence.filter((e) => e.stance === null);
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-16">
@@ -94,14 +139,17 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
 
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium text-muted-foreground">Evidence</h2>
-        <p className="text-sm text-foreground">
-          {result.independentSources === 1 ? "1 Independent source" : `${result.independentSources} Independent sources`}
-          <span className="text-muted-foreground"> (sites repeating one report count once)</span>
-        </p>
+        {result.independentSources !== undefined && (
+          <p className="text-sm text-foreground">
+            {result.independentSources === 1 ? "1 Independent source" : `${result.independentSources} Independent sources`}
+            <span className="text-muted-foreground"> (sites repeating one report count once)</span>
+          </p>
+        )}
         <div className="grid gap-6 sm:grid-cols-2">
-          <EvidenceColumn title="For the claim" items={result.evidence.filter((e) => e.stance === "supports")} />
-          <EvidenceColumn title="Against the claim" items={result.evidence.filter((e) => e.stance === "contradicts")} />
+          <EvidenceColumn title="For the claim" items={evidence.filter((e) => e.stance === "supports")} />
+          <EvidenceColumn title="Against the claim" items={evidence.filter((e) => e.stance === "contradicts")} />
         </div>
+        {unsorted.length > 0 && <EvidenceColumn title="Other evidence" items={unsorted} />}
       </section>
 
       {steps.length > 0 && (

@@ -38,11 +38,20 @@ async function liveUnderstand(client: OpenAI, message: string): Promise<Understo
   return response.output_parsed;
 }
 
+/** No Origin for or against the Claim means nothing independent backs it, whether the Evidence is
+ * only Fact-checks or Origin tagging failed. The Verdict is then "Not confirmed yet" whatever the
+ * model says (CONTEXT.md "Not confirmed yet"; the full Confidence rule is issue #8). */
+const NOT_CONFIRMED: VerdictOutput = {
+  label: "unconfirmed",
+  one_line: "No independent source has confirmed or denied this yet.",
+};
+
 async function liveVerdict(
   client: OpenAI,
   claim: string,
   claimDate: string,
   evidence: Evidence[],
+  independentSources: number,
 ): Promise<VerdictOutput> {
   const response = await client.responses.parse({
     model: MODELS.luna,
@@ -51,8 +60,9 @@ async function liveVerdict(
       "using only the Evidence given. Decide: true, false, misleading, or " +
       "unconfirmed (too few independent sources either way — never guess). " +
       "Give a one-line plain-language reason. Evidence marked quoteVerified: false couldn't be checked " +
-      "against its page; items sharing an Origin count as one Independent source.",
-    input: `Claim: ${claim}\n\nEvidence:\n${JSON.stringify(evidence)}`,
+      "against its page; items sharing an Origin count as one Independent source, and items marked " +
+      "factCheck: true repeat someone else's verdict, so they are a lead, not an Independent source.",
+    input: `Claim: ${claim}\n\nIndependent sources: ${independentSources}\n\nEvidence:\n${JSON.stringify(evidence)}`,
     text: { format: zodTextFormat(VerdictSchema, "verdict") },
   });
   if (!response.output_parsed) throw new Error("Verdict step returned no output");
@@ -89,10 +99,11 @@ export async function* check(message: string, options: CheckOptions = {}): Async
     );
     const { evidence, independentSources } = yield* processEvidence(candidates, pages);
 
-    const verdict = await callOpenAI({
+    const judged = await callOpenAI({
       fixture: verdictFixture(),
-      live: (client) => liveVerdict(client, claim.canonical_en, claimDate, evidence),
+      live: (client) => liveVerdict(client, claim.canonical_en, claimDate, evidence, independentSources),
     });
+    const verdict = independentSources === 0 ? NOT_CONFIRMED : judged;
     yield { type: "verdict", label: verdict.label, oneLine: verdict.one_line };
 
     const result: Result = {

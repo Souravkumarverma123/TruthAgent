@@ -49,20 +49,72 @@ function codePoint(n: number): string {
   return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : " ";
 }
 
-// ponytail: regex HTML-to-text and a few named entities; use a real HTML
-// parser if the quote check starts dropping Evidence it shouldn't.
-function pageText(html: string): string {
-  return html
-    .replace(/<(script|style|noscript|svg)\b[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
+/** The named references news pages actually write, above all the punctuation a
+ * quote can carry: a page writing `&rsquo;` must still match a quote written `’`. */
+const NAMED_ENTITIES: Record<string, string> = {
+  nbsp: " ",
+  ensp: " ",
+  emsp: " ",
+  thinsp: " ",
+  shy: "",
+  quot: '"',
+  apos: "'",
+  lsquo: "‘",
+  rsquo: "’",
+  sbquo: "‚",
+  ldquo: "“",
+  rdquo: "”",
+  bdquo: "„",
+  lsaquo: "‹",
+  rsaquo: "›",
+  laquo: "«",
+  raquo: "»",
+  prime: "′",
+  Prime: "″",
+  ndash: "–",
+  mdash: "—",
+  minus: "−",
+  hellip: "…",
+  bull: "•",
+  middot: "·",
+  deg: "°",
+  euro: "€",
+  pound: "£",
+  yen: "¥",
+  cent: "¢",
+  copy: "©",
+  reg: "®",
+  trade: "™",
+  times: "×",
+  divide: "÷",
+  frac12: "½",
+  frac14: "¼",
+  frac34: "¾",
+  dagger: "†",
+  Dagger: "‡",
+  sect: "§",
+  para: "¶",
+  lt: "<",
+  gt: ">",
+  amp: "&",
+};
+
+/** Character references back to their characters, so the quote check compares text with
+ * text. One left-to-right pass, so `&amp;rsquo;` decodes to the literal text `&rsquo;`.
+ * A name we don't know is left as written rather than guessed at. */
+function decodeEntities(text: string): string {
+  return text
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) => codePoint(parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_, dec) => codePoint(Number(dec)))
-    .replace(/&amp;/g, "&")
+    .replace(/&([a-zA-Z][a-zA-Z0-9]*);/g, (match, name) => NAMED_ENTITIES[name] ?? match);
+}
+
+// ponytail: regex HTML-to-text and a table of named references; use a real HTML
+// parser if the quote check starts dropping Evidence it shouldn't.
+function pageText(html: string): string {
+  return decodeEntities(
+    html.replace(/<(script|style|noscript|svg)\b[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " "),
+  )
     .replace(/\s+/g, " ")
     .trim();
 }
