@@ -218,3 +218,23 @@ scripts/eval.ts              runs the 40-claim test set (fact-check sites blocke
 3. Vercel function time limit on our plan: does a ~60s agent run fit? (Streaming helps, but the limit still applies.)
 4. A Hindi forward end to end.
 5. Traffic light frame in Google Vision: does it find the Berlin/Lugagnano pages?
+
+### Findings (2026-09-24, real keys)
+| # | Unknown | Answer | Numbers seen |
+|---|---|---|---|
+| 1 | Model ids | **Yes.** `gpt-6-luna` and `gpt-6-sol` are on our key; `MODELS` is right as written. (`gpt-6-astra`, `gpt-5.6-luna/sol` also exist.) | 132 models listed |
+| 2 | `web_search` + function tool in one call | **Yes.** In one turn the model searched, then called `read_page`. `filters.blocked_domains` is accepted. `include: ["web_search_call.action.sources"]` returns the full source list (we don't request it yet; #16 will want it). One `web_search_call` can carry several queries. | 6.8s, 15 sources, ~8.8k input tokens |
+| 3 | Vercel time limit | **Fits.** With Fluid compute (on by default for new projects) the limit is 300s on every plan, streaming included (vercel.com/docs/functions/limitations, updated 2026-08-24). Confirm Fluid is on when deploying; no `maxDuration` needed. | Live Check: 39s to Verdict |
+| 4 | Traffic-light frame in Google Vision | **Blocked.** Vision returns 403: billing must be enabled on the Google Cloud project, even for the 1,000/month free tier. The real video frame is also not in the repo yet. Fact Check Tools on the same key works and already returns Full Fact's Lugagnano/Berlin fact-check. | — |
+| 5 | Hindi forward end to end | **Yes.** "RBI ने 500 रुपये के नोट बंद…" → canonical "The Reserve Bank of India has announced that ₹500 banknotes will no longer be valid from January 1." → read rbi.org.in and newsonair.gov.in (both tier 1, quotes verified) → **False**, citing the RBI FAQ and PIB. | 3 luna calls + 1 search |
+
+Timing of that live Check: understand 3.3s · search 8s · two `read_page` calls 6.5s + 8s (run one after the other) · Evidence + Origin tagging 7.6s · Verdict 5.4s. If Checks feel slow, run a turn's `read_page` calls in parallel first.
+
+Cost of all of the above: about $0.05 (2 web searches plus luna tokens).
+
+Still open, needs a human:
+- **Enable billing** on the Google Cloud project (the key stays restricted to Fact Check + Vision), then rerun Vision on a screenshot of the actual traffic-light video.
+- **Upstash Redis** keys (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`): without them a live Check runs to its Verdict, then fails to save the Result.
+- A hard monthly spend limit in the OpenAI dashboard, if not set yet.
+
+Noticed on the way (not fixed here): the Understand step has no `language` field yet, though the spec asks for one (the Hindi Verdict ticket, #14, needs it); and a search step's line lists every query, so it gets long.
