@@ -6,8 +6,6 @@ import { isBlocked } from "./sources.ts";
 
 /** Per tool call (the Wayback lookup shares it with the page fetch). */
 const TOOL_MS = 8_000;
-/** Enough for the model to find a quote; keeps a turn's tokens small. */
-const PAGE_TEXT_CHARS = 6_000;
 
 /** A YYYY-MM-DD string that is a real calendar day, else null. Round-tripping
  * through Date rejects both unparseable days and ones it would roll over,
@@ -47,9 +45,12 @@ async function earliestWaybackDay(url: string, signal: AbortSignal): Promise<str
   return calendarDay(`${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)}`);
 }
 
-// ponytail: regex HTML-to-text, a few named entities, first 6,000 chars only.
-// A quote deep in a long page or behind numeric entities won't be seen; use a
-// real HTML parser (and the quote check in #5) if that starts dropping Evidence.
+function codePoint(n: number): string {
+  return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : " ";
+}
+
+// ponytail: regex HTML-to-text and a few named entities; use a real HTML
+// parser if the quote check starts dropping Evidence it shouldn't.
 function pageText(html: string): string {
   return html
     .replace(/<(script|style|noscript|svg)\b[\s\S]*?<\/\1>/gi, " ")
@@ -59,16 +60,18 @@ function pageText(html: string): string {
     .replace(/&#39;|&apos;/g, "'")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => codePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => codePoint(Number(dec)))
     .replace(/&amp;/g, "&")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, PAGE_TEXT_CHARS);
+    .trim();
 }
 
 export interface Page {
   url: string;
   published: string | null;
   date_source: "page" | "wayback" | null;
+  /** The whole page's text; the agent shows the model only the start of it. */
   text: string;
 }
 

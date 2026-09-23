@@ -1,10 +1,11 @@
 // The Engine's one entry point (AGENTS.md: "One test seam"). Understand →
-// agent loop (agent.ts) → one luna Verdict → save. See docs/architecture.md §5
+// agent loop (agent.ts) → Evidence processing (evidence.ts) → one luna Verdict → save. See docs/architecture.md §5
 // for the full pipeline this tracer bullet is the first slice of.
 import type OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { agentLoop } from "./agent.ts";
 import { callOpenAI, saveResult } from "./boundary.ts";
+import { processEvidence } from "./evidence.ts";
 import { understandFixture, verdictFixture } from "./fixtures.ts";
 import { MODELS } from "./models.ts";
 import {
@@ -49,7 +50,8 @@ async function liveVerdict(
       `Today's date is ${new Date().toISOString().slice(0, 10)}. Judge the Claim as of ${claimDate}, ` +
       "using only the Evidence given. Decide: true, false, misleading, or " +
       "unconfirmed (too few independent sources either way — never guess). " +
-      "Give a one-line plain-language reason.",
+      "Give a one-line plain-language reason. Evidence marked quoteVerified: false couldn't be checked " +
+      "against its page; items sharing an origin count as one source.",
     input: `Claim: ${claim}\n\nEvidence:\n${JSON.stringify(evidence)}`,
     text: { format: zodTextFormat(VerdictSchema, "verdict") },
   });
@@ -81,10 +83,11 @@ export async function* check(message: string, options: CheckOptions = {}): Async
     const claim = understood.main_claim;
     yield { type: "understood", claim: { original: claim.original, canonicalEn: claim.canonical_en } };
 
-    const { evidence, steps } = yield* agentLoop(
+    const { candidates, steps, pages } = yield* agentLoop(
       { canonicalEn: claim.canonical_en, claimType: claim.claim_type },
       claimDate,
     );
+    const { evidence, independentSources } = yield* processEvidence(candidates, pages);
 
     const verdict = await callOpenAI({
       fixture: verdictFixture(),
@@ -100,6 +103,7 @@ export async function* check(message: string, options: CheckOptions = {}): Async
       mainClaim: { original: claim.original, canonicalEn: claim.canonical_en },
       verdict: { label: verdict.label, oneLine: verdict.one_line },
       evidence,
+      independentSources,
       steps,
     };
     await saveResult(result);

@@ -14,7 +14,13 @@ import type {
 import { callOpenAI } from "./boundary.ts";
 import { agentTurnFixture } from "./fixtures.ts";
 import { MODELS } from "./models.ts";
-import { EvidenceCandidatesSchema, type AgentStep, type CheckEvent, type ClaimType, type Evidence } from "./schemas.ts";
+import {
+  EvidenceCandidatesSchema,
+  type AgentStep,
+  type CheckEvent,
+  type ClaimType,
+  type EvidenceCandidate,
+} from "./schemas.ts";
 import { AUTHORITY_RULES, BLOCKED_DOMAINS } from "./sources.ts";
 import { readPage, type Page } from "./tools.ts";
 
@@ -25,6 +31,8 @@ const TOTAL_MS = 60_000;
  * ponytail: the 60s deadline is checked between turns, so a Check can run to
  * about 60s plus one final turn; abort mid-turn if that's too slow. */
 const TURN_MS = 25_000;
+/** Enough for the model to find a quote; keeps a turn's tokens small. */
+const PAGE_TEXT_CHARS = 6_000;
 
 /** One model turn, reduced to what the loop needs. Replay fixtures use this shape. */
 export interface AgentTurn {
@@ -34,7 +42,7 @@ export interface AgentTurn {
   /** Our function tools the model wants run. */
   calls: { callId: string; name: string; arguments: string }[];
   /** Set once the model stops calling tools. */
-  evidence: Evidence[] | null;
+  evidence: EvidenceCandidate[] | null;
 }
 
 const READ_PAGE_TOOL: FunctionTool = {
@@ -67,7 +75,7 @@ function instructions(claimType: ClaimType, claimDate: string): string {
       "and read_page to read a page before quoting it. Quote only words that appear in the page text.",
     "Also search for denials and retractions, not just the original story.",
     "If a tool returns an error, carry on with other pages or tools.",
-    "When you have enough, stop and answer with the Evidence: each item's real url, the site's name, " +
+    "When you have enough, stop and answer with the Evidence: each item's real url, " +
       "an exact quote, and whether it supports, contradicts, or is irrelevant to the Claim. Never invent a url or a quote.",
   ].join("\n");
 }
@@ -138,17 +146,25 @@ function siteName(url: string): string {
   }
 }
 
+export interface AgentOutcome {
+  candidates: EvidenceCandidate[];
+  steps: AgentStep[];
+  /** Pages read during the loop, by url; null if reading failed. Saves the quote check a second fetch. */
+  pages: Map<string, Page | null>;
+}
+
 /**
  * Runs the agent loop for one Claim: streams a `step` event per tool call and
- * returns the Evidence candidates plus the steps as last shown.
+ * returns the Evidence candidates, the steps as last shown, and the pages read.
  */
 export async function* agentLoop(
   claim: { canonicalEn: string; claimType: ClaimType },
   claimDate: string,
-): AsyncGenerator<CheckEvent, { evidence: Evidence[]; steps: AgentStep[] }> {
+): AsyncGenerator<CheckEvent, AgentOutcome> {
   const prompt = instructions(claim.claimType, claimDate);
   const deadline = Date.now() + TOTAL_MS;
   const steps = new Map<string, AgentStep>();
+  const pages = new Map<string, Page | null>();
   let searches = 0;
   let input: string | ResponseInputItem[] = `Claim: ${claim.canonicalEn}`;
   let previousResponseId: string | undefined;
@@ -164,7 +180,7 @@ export async function* agentLoop(
     const toolsAllowed = !outOfBudget();
     const searchesLeft = toolsAllowed ? Math.min(MAX_SEARCHES - searches, MAX_STEPS - steps.size) : 0;
     const turn = await callOpenAI({
-      fixture: agentTurnFixture(turnIndex),
+      fixture: agentTurnFixture(claim.canonicalEn, turnIndex),
       live: (client) => liveTurn(client, { instructions: prompt, input, previousResponseId, toolsAllowed, searchesLeft }),
     });
 
@@ -182,7 +198,7 @@ export async function* agentLoop(
       );
     }
 
-    if (turn.calls.length === 0) return { evidence: turn.evidence ?? [], steps: [...steps.values()] };
+    if (turn.calls.length === 0) return { candidates: turn.evidence ?? [], steps: [...steps.values()], pages };
 
     // Every call needs an output, even ones we don't run, or the next turn is rejected.
     const outputs: ResponseInputItem[] = [];
@@ -202,9 +218,11 @@ export async function* agentLoop(
         yield step(id, { tool: "read_page", line: `Reading ${site}…`, status: "running" });
         try {
           const page = await readPage(url);
-          output = page;
+          pages.set(url, page);
+          output = { ...page, text: page.text.slice(0, PAGE_TEXT_CHARS) };
           yield step(id, { tool: "read_page", line: `Read ${site}${dateNote(page)}`, status: "done" });
         } catch (error) {
+          pages.set(url, null);
           output = { error: `Couldn't read this page: ${error instanceof Error ? error.message : String(error)}` };
           yield step(id, { tool: "read_page", line: `Couldn't read ${site}`, status: "failed" });
         }
@@ -214,5 +232,5 @@ export async function* agentLoop(
     previousResponseId = turn.responseId;
     input = outputs;
   }
-  return { evidence: [], steps: [...steps.values()] };
+  return { candidates: [], steps: [...steps.values()], pages };
 }

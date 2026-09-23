@@ -2,7 +2,7 @@
 // `callOpenAI` doc comment for why these are static rather than hash-keyed.
 import type { AgentTurn } from "./agent.ts";
 import { waybackCdxUrl } from "./boundary.ts";
-import type { Understood, VerdictOutput } from "./schemas.ts";
+import type { Evidence, OriginsOutput, Understood, VerdictOutput } from "./schemas.ts";
 
 /** No search happens in replay mode, so this just echoes what was typed —
  * that's the one part of "understanding" that costs nothing to get right. */
@@ -17,14 +17,35 @@ const WIKIPEDIA = "https://en.wikipedia.org/wiki/Amitabh_Bachchan";
 const HOAX_SITE = "https://www.viralnewsnow.example/amitabh-bachchan-passes-away";
 /** Readable page whose metadata date isn't a real day. */
 const BAD_DATE_SITE = "https://www.dailyroundup.example/bachchan-rumour-debunked";
+/** On the block list: never Evidence. */
+const MEDIAMASS = "https://en.mediamass.net/people/amitabh-bachchan/deathhoax.html";
+
+/** A second scenario: one ANI line carried by 15 sites, cited from search without reading. */
+const RBI_CLAIM = /₹500/;
+const ANI_LINE =
+  "New Delhi [India], December 2 (ANI): The Reserve Bank of India on Tuesday said ₹500 notes remain legal tender " +
+  "and there is no plan to withdraw them.";
+const ANI_SITES = Array.from({ length: 15 }, (_, i) => `https://news${i + 1}.example/rbi-500-notes-legal-tender`);
 
 /**
- * The agent's turns in the fixed demo scenario (the recurring Amitabh
- * Bachchan death hoax, see docs/handoff.md "Demo Claims"): one search and
- * four page reads (one dated by the page, one by Wayback, one with an
- * unusable date, one that fails), then the Evidence.
+ * The agent's turns, by scenario. Default: the recurring Amitabh Bachchan
+ * death hoax (docs/handoff.md "Demo Claims"): one search and four page reads
+ * (one dated by the page, one by Wayback, one with an unusable date, one that
+ * fails), then Evidence that includes a blocked site and an invented quote.
  */
-export function agentTurnFixture(turnIndex: number): AgentTurn {
+export function agentTurnFixture(claim: string, turnIndex: number): AgentTurn {
+  if (RBI_CLAIM.test(claim)) {
+    return {
+      responseId: "resp_replay_rbi",
+      searches: [{ query: "RBI ₹500 notes ban", failed: false }],
+      calls: [],
+      evidence: ANI_SITES.map((url) => ({
+        url,
+        quote: "The Reserve Bank of India on Tuesday said ₹500 notes remain legal tender",
+        stance: "contradicts",
+      })),
+    };
+  }
   if (turnIndex === 0) {
     return {
       responseId: "resp_replay_0",
@@ -44,16 +65,21 @@ export function agentTurnFixture(turnIndex: number): AgentTurn {
     evidence: [
       {
         url: ALT_NEWS,
-        site: "Alt News",
-        quote: "This is not the first time such a rumour about Amitabh Bachchan's death has gone viral.",
+        quote: "This is not the first time such a rumour about Amitabh Bachchan’s death has gone viral.",
         stance: "contradicts",
       },
       {
         url: WIKIPEDIA,
-        site: "Wikipedia",
         quote: "Amitabh Bachchan (born 11 October 1942) is an Indian actor",
         stance: "contradicts",
       },
+      {
+        url: HOAX_SITE,
+        quote: "Legendary actor Amitabh Bachchan passed away this morning in Mumbai",
+        stance: "supports",
+      },
+      { url: MEDIAMASS, quote: "Amitabh Bachchan dead at 83", stance: "supports" },
+      { url: BAD_DATE_SITE, quote: "Police confirmed Amitabh Bachchan is alive and well", stance: "contradicts" },
     ],
   };
 }
@@ -72,10 +98,29 @@ const RECORDED_PAGES: Record<string, string> = {
     "<body><p>Police said the message circulating on WhatsApp is a rumour.</p></body></html>",
   [waybackCdxUrl(WIKIPEDIA)]:
     '[["timestamp"],["20040105093012"]]',
+  ...Object.fromEntries(
+    ANI_SITES.map((url, i) => [
+      url,
+      '<html><head><meta property="article:published_time" content="2025-12-02"></head>' +
+        `<body><nav>News ${i + 1} home</nav><p>${ANI_LINE}</p></body></html>`,
+    ]),
+  ),
 };
 
 export function pageFixture(url: string): string | undefined {
   return RECORDED_PAGES[url];
+}
+
+/** What the Origin tagger answers, by url. */
+const ORIGINS: Record<string, string> = {
+  [ALT_NEWS]: "Alt News's own reporting",
+  [WIKIPEDIA]: "Wikipedia's article",
+  [HOAX_SITE]: "viralnewsnow.example's unsourced post",
+  ...Object.fromEntries(ANI_SITES.map((url) => [url, "ANI wire"])),
+};
+
+export function originFixture(evidence: Evidence[]): OriginsOutput {
+  return { origins: evidence.flatMap((e) => (ORIGINS[e.url] ? [{ id: e.id, origin: ORIGINS[e.url] }] : [])) };
 }
 
 export function verdictFixture(): VerdictOutput {
