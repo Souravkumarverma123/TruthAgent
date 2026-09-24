@@ -31,7 +31,7 @@ export const independentSources = (evidence: Evidence[]) => originsBySide(eviden
 
 /** The side whose Evidence backs the label. ponytail: Misleading counts the side that corrects the
  * framing (contradicts); give it both sides if the accuracy run says its Confidence is too low. */
-const AGREEING: Record<Exclude<VerdictLabel, "unconfirmed">, Evidence["stance"]> = {
+export const AGREEING: Record<Exclude<VerdictLabel, "unconfirmed">, Evidence["stance"]> = {
   true: "supports",
   false: "contradicts",
   misleading: "contradicts",

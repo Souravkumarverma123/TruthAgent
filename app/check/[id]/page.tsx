@@ -1,7 +1,8 @@
 import { RecheckButton } from "@/components/recheck-button";
+import { SiteBar } from "@/components/site-bar";
 import { StepStatusIcon } from "@/components/step-status-icon";
 import { getResult } from "@/lib/engine/boundary.ts";
-import { independentSources } from "@/lib/engine/confidence.ts";
+import { AGREEING, originsBySide } from "@/lib/engine/confidence.ts";
 import type {
   Confidence,
   Evidence,
@@ -12,6 +13,7 @@ import type {
   Verdict,
   VerdictLabel,
 } from "@/lib/engine/schemas.ts";
+import { ArrowUpRightIcon } from "lucide-react";
 import Link from "next/link";
 
 const LABEL_TEXT: Record<VerdictLabel, string> = {
@@ -21,14 +23,16 @@ const LABEL_TEXT: Record<VerdictLabel, string> = {
   unconfirmed: "Not confirmed yet",
 };
 
-const LABEL_CLASS: Record<VerdictLabel, string> = {
-  true: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-300",
-  false: "bg-red-100 text-red-900 dark:bg-red-900/40 dark:text-red-300",
-  misleading: "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-300",
-  unconfirmed: "bg-muted text-muted-foreground",
+/** The ruling band's field and ink: red and amber appear only here and on state marks. */
+const LABEL_TONE: Record<VerdictLabel, { band: string; word: string }> = {
+  true: { band: "bg-true-soft", word: "text-true" },
+  false: { band: "bg-false-soft", word: "text-false" },
+  misleading: { band: "bg-muted", word: "text-foreground" },
+  unconfirmed: { band: "bg-pending-soft", word: "text-pending" },
 };
 
 const CONFIDENCE_TEXT: Record<Confidence["level"], string> = { high: "High", medium: "Medium", low: "Low" };
+const CONFIDENCE_STEPS: Record<Confidence["level"], number> = { low: 1, medium: 2, high: 3 };
 
 const TIER_TEXT: Record<Tier, string> = {
   1: "Official source",
@@ -56,8 +60,31 @@ const TAG_TEXT: Record<ReasoningStep["tag"], string> = {
 };
 
 const REAL_TEXT: Record<PhotoCheck["real"], string> = { yes: "Yes", no: "Probably not", unknown: "Can't tell" };
+const REAL_TONE: Record<PhotoCheck["real"], string> = { yes: "text-true", no: "text-false", unknown: "text-pending" };
 
-function PhotoCheckCard({ photo }: { photo: PhotoCheck }) {
+/** Section heading: the same quiet voice for every part of the proof below the ruling. */
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <h2 className="text-2xl font-bold tracking-[-0.025em] text-foreground sm:text-3xl">{children}</h2>;
+}
+
+function ConfidenceScale({ confidence }: { confidence: Confidence }) {
+  const filled = CONFIDENCE_STEPS[confidence.level];
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-3">
+        <span aria-hidden className="flex gap-1">
+          {[1, 2, 3].map((step) => (
+            <span key={step} className={`h-2.5 w-7 rounded-full ${step <= filled ? "bg-foreground" : "bg-foreground/15"}`} />
+          ))}
+        </span>
+        <span className="text-lg font-semibold whitespace-nowrap text-foreground">{CONFIDENCE_TEXT[confidence.level]} confidence</span>
+      </div>
+      <span className="text-lg text-foreground/75">{confidence.reason}</span>
+    </div>
+  );
+}
+
+function PhotoCheckPanel({ photo }: { photo: PhotoCheck }) {
   const { exif } = photo;
   const exifParts = exif && [
     exif.taken && `taken ${exif.taken.replace("T", " ").slice(0, 16)}`,
@@ -65,29 +92,32 @@ function PhotoCheckCard({ photo }: { photo: PhotoCheck }) {
     exif.place && `at ${exif.place.lat.toFixed(4)}, ${exif.place.lon.toFixed(4)}`,
   ].filter(Boolean);
   return (
-    <section className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
-      <h2 className="text-sm font-medium text-muted-foreground">Photo check</h2>
-      <p className="text-foreground">
-        <span className="font-semibold">Real photo: {REAL_TEXT[photo.real]}.</span> {photo.reason}
-      </p>
-      {photo.description && <p className="text-sm text-muted-foreground">The photo shows: {photo.description}</p>}
-      <p className="text-sm text-foreground">
-        <span className="font-medium">Earliest copy we found: </span>
-        {photo.earliest ? (
-          <>
-            <a href={photo.earliest.url} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-4">
-              {photo.earliest.site}
-            </a>
-            , {DAY_FORMAT.format(new Date(photo.earliest.date))}
-          </>
-        ) : (
-          "none with a date"
-        )}
-      </p>
-      <p className="text-sm text-foreground">
-        <span className="font-medium">From the photo file: </span>
-        {exifParts?.length ? exifParts.join(", ") : "no details (most apps remove them, so this proves nothing)"}
-      </p>
+    <section aria-labelledby="photo-check" className="grid gap-6 border-t border-border pt-10 md:grid-cols-[14rem_1fr] md:gap-10">
+      <SectionTitle>
+        <span id="photo-check">Photo check</span>
+      </SectionTitle>
+      <div className="flex max-w-3xl flex-col gap-3 text-lg text-foreground">
+        <p className={`text-3xl font-bold tracking-[-0.03em] ${REAL_TONE[photo.real]}`}>Real photo: {REAL_TEXT[photo.real]}.</p>
+        <p>{photo.reason}</p>
+        {photo.description && <p className="text-muted-foreground">The photo shows: {photo.description}</p>}
+        <dl className="grid gap-x-6 gap-y-2 border-t border-border pt-4 text-base sm:grid-cols-[auto_1fr]">
+          <dt className="font-semibold">Earliest copy we found:</dt>
+          <dd>
+            {photo.earliest ? (
+              <>
+                <a href={photo.earliest.url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary underline">
+                  {photo.earliest.site}
+                </a>
+                , <span className="font-mono tracking-[-0.02em] tabular-nums">{DAY_FORMAT.format(new Date(photo.earliest.date))}</span>
+              </>
+            ) : (
+              "none with a date"
+            )}
+          </dd>
+          <dt className="font-semibold">From the photo file:</dt>
+          <dd>{exifParts?.length ? exifParts.join(", ") : "no details (most apps remove them, so this proves nothing)"}</dd>
+        </dl>
+      </div>
     </section>
   );
 }
@@ -108,43 +138,53 @@ function decidedBy({ model, trigger, label }: Verdict): string {
     : `Decided by ${model}, the stronger model: ${why}.`;
 }
 
-function EvidenceColumn({ title, items }: { title: string; items: Evidence[] }) {
+function EvidenceRow({ item }: { item: Evidence }) {
   return (
-    <section className="flex flex-col gap-3">
-      <h3 className="text-sm font-medium text-muted-foreground">
-        {title} ({items.length})
-      </h3>
+    <li id={item.id} className="evidence-row flex flex-col gap-3 py-5">
+      <p className="flex gap-3 text-lg leading-relaxed text-foreground">
+        <span className="mt-0.5 w-9 shrink-0 font-mono text-base font-medium text-muted-foreground">{item.id}</span>
+        <span>&ldquo;{item.quote}&rdquo;</span>
+      </p>
+      <div className="flex flex-col gap-1.5 pl-12">
+        {!item.quoteVerified && <p className="text-base font-semibold text-pending">Quote not verified</p>}
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex w-fit items-center gap-1 text-base font-semibold text-primary underline decoration-primary/40 hover:decoration-primary"
+        >
+          {item.site}
+          <ArrowUpRightIcon aria-hidden className="size-4" />
+        </a>
+        <p className="text-base text-muted-foreground">
+          {TIER_TEXT[item.tier]} · <span className="font-mono tracking-[-0.02em] tabular-nums">{item.date ? DAY_FORMAT.format(new Date(item.date)) : "No date found"}</span>
+        </p>
+        <p className="text-base text-muted-foreground">Origin: {item.origin ?? "not identified"}</p>
+        {item.factCheck && <p className="text-base text-muted-foreground">Someone else&apos;s fact-check: a lead, not an Independent source</p>}
+      </div>
+    </li>
+  );
+}
+
+/** One side of the ledger; the side the Verdict rests on takes the Verdict's colour on its rule. */
+function LedgerColumn({ title, items, sources, backs }: { title: string; items: Evidence[]; sources: number; backs: string | null }) {
+  return (
+    <section className="flex flex-col">
+      <div className={`flex flex-col gap-1 border-b-2 pb-3 ${backs ?? "border-foreground"}`}>
+        <h3 className="flex items-baseline justify-between gap-4 text-xl font-bold tracking-[-0.015em] text-foreground">
+          {title}
+          <span className="font-mono text-base font-medium text-muted-foreground">({items.length})</span>
+        </h3>
+        <p className="font-mono text-base tracking-[-0.02em] text-muted-foreground">
+          {sources === 1 ? "1 Independent source" : `${sources} Independent sources`}
+        </p>
+      </div>
       {items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nothing found.</p>
+        <p className="py-5 text-lg text-muted-foreground">Nothing found.</p>
       ) : (
-        <ul className="flex flex-col gap-3">
+        <ul className="flex flex-col divide-y divide-border">
           {items.map((item) => (
-            <li key={item.id} id={item.id} className="scroll-mt-4 rounded-lg border border-border p-3">
-              <p className="text-sm text-foreground">
-                <span className="mr-2 text-xs font-medium text-muted-foreground">{item.id}</span>
-                &ldquo;{item.quote}&rdquo;
-              </p>
-              {!item.quoteVerified && (
-                <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">Quote not verified</p>
-              )}
-              <a
-                href={item.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-2 block text-sm font-medium text-primary underline underline-offset-4"
-              >
-                {item.site}
-              </a>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {TIER_TEXT[item.tier]} · {item.date ? DAY_FORMAT.format(new Date(item.date)) : "No date found"}
-              </p>
-              <p className="text-xs text-muted-foreground">Origin: {item.origin ?? "not identified"}</p>
-              {item.factCheck && (
-                <p className="text-xs text-muted-foreground">
-                  Someone else&apos;s fact-check: a lead, not an Independent source
-                </p>
-              )}
-            </li>
+            <EvidenceRow key={item.id} item={item} />
           ))}
         </ul>
       )}
@@ -158,130 +198,181 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
 
   if (!result) {
     return (
-      <main className="flex flex-1 items-center justify-center px-6 py-16 text-center">
-        <p className="text-muted-foreground">
-          We couldn&apos;t find that Result. It may have expired, or the link is wrong.
-        </p>
-      </main>
+      <>
+        <SiteBar />
+        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-start gap-6 px-5 py-20 sm:px-10">
+          <p className="max-w-2xl text-2xl text-foreground">We couldn&apos;t find that Result. It may have expired, or the link is wrong.</p>
+          <Link href="/" className="text-lg font-semibold text-primary underline">
+            Check a forward
+          </Link>
+        </main>
+      </>
     );
   }
 
   const { verdict, mainClaim, photoCheck, evidence, steps } = result;
-  const sources = independentSources(evidence);
+  const sides = originsBySide(evidence);
+  const sources = sides.total;
+  // The side the Verdict rests on; Not confirmed yet rests on neither.
+  const backing = verdict && verdict.label !== "unconfirmed" ? AGREEING[verdict.label] : null;
+  const backRule = verdict ? (verdict.label === "true" ? "border-true" : "border-false") : null;
+  const tone = verdict ? LABEL_TONE[verdict.label] : null;
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-16">
-      {/* A photo isn't saved with the Result, so a Check with one can't be re-run from here. */}
-      <section className="flex flex-col gap-2">
-        <p className="text-sm text-muted-foreground">Checked {ago(result.createdAt)}</p>
-        {photoCheck ? (
-          <p className="text-xs text-muted-foreground">
-            To check it again, add the photo on the{" "}
-            <Link href="/" className="underline underline-offset-2">
-              home page
-            </Link>
-            .
-          </p>
-        ) : (
-          result.message.text && <RecheckButton message={result.message.text} />
-        )}
-      </section>
-
-      {verdict && (
-        <>
-          <span
-            className={`inline-flex w-fit items-center rounded-full px-4 py-1.5 text-lg font-semibold ${LABEL_CLASS[verdict.label]}`}
-          >
-            {LABEL_TEXT[verdict.label]}
-          </span>
-
-          <p className="text-lg text-foreground">{verdict.oneLine}</p>
-
-          <p className="text-sm text-foreground">
-            <span className="font-medium">{CONFIDENCE_TEXT[verdict.confidence.level]} confidence</span>
-            <span className="text-muted-foreground"> · {verdict.confidence.reason}</span>
-          </p>
-        </>
-      )}
-
-      {/* Independent of the Verdict: a real photo can carry a False Claim. */}
-      {photoCheck && <PhotoCheckCard photo={photoCheck} />}
-
-      {mainClaim ? (
-        <section className="rounded-lg border border-border bg-card p-4">
-          <h2 className="text-sm font-medium text-muted-foreground">Main claim</h2>
-          <p className="mt-1 text-foreground">{mainClaim.original}</p>
-        </section>
-      ) : (
-        <p className="text-foreground">
-          There&apos;s no text to check with this photo. Paste the message that came with it to check its story too.
-        </p>
-      )}
-
-      {verdict && (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-sm font-medium text-muted-foreground">Why</h2>
-          {verdict.reasoning.length > 0 && (
-            <ol className="flex flex-col gap-2">
-              {verdict.reasoning.map((step, i) => (
-                <li key={i} className="text-sm text-foreground">
-                  <span className="mr-2 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
-                    {TAG_TEXT[step.tag]}
-                  </span>
-                  {step.text}
-                  {step.evidenceIds.length > 0 && (
-                    <span className="text-muted-foreground">
-                      {" ("}
-                      {step.evidenceIds.map((evidenceId, j) => (
-                        <span key={evidenceId}>
-                          {j > 0 && ", "}
-                          <a href={`#${evidenceId}`} className="underline underline-offset-2">
-                            {evidenceId}
-                          </a>
-                        </span>
-                      ))}
-                      )
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ol>
+    <>
+      <SiteBar>
+        {/* A photo isn't saved with the Result, so a Check with one can't be re-run from here. */}
+        <div className="flex items-center gap-4 text-right">
+          <p className="hidden text-base text-muted-foreground sm:block">Checked {ago(result.createdAt)}</p>
+          {photoCheck ? (
+            <p className="max-w-72 text-base text-muted-foreground">
+              To check it again, add the photo on the{" "}
+              <Link href="/" className="font-medium text-primary underline">
+                home page
+              </Link>
+              .
+            </p>
+          ) : (
+            result.message.text && <RecheckButton message={result.message.text} />
           )}
-          <p className="text-sm text-foreground">
-            <span className="font-medium">What would change this: </span>
-            {verdict.whatWouldChange}
-          </p>
-          <p className="text-xs text-muted-foreground">{decidedBy(verdict)}</p>
-        </section>
-      )}
+        </div>
+      </SiteBar>
 
-      {verdict && (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-sm font-medium text-muted-foreground">Evidence</h2>
-          <p className="text-sm text-foreground">
-            {sources === 1 ? "1 Independent source" : `${sources} Independent sources`}
-            <span className="text-muted-foreground"> (sites repeating one report count once)</span>
-          </p>
-          <div className="grid gap-6 sm:grid-cols-2">
-            <EvidenceColumn title="For the claim" items={evidence.filter((e) => e.stance === "supports")} />
-            <EvidenceColumn title="Against the claim" items={evidence.filter((e) => e.stance === "contradicts")} />
-          </div>
-        </section>
-      )}
+      <main className="flex flex-1 flex-col pb-24">
+        {verdict && tone && (
+          <section aria-label="Verdict" className={`settle ${tone.band}`}>
+            <div className="mx-auto grid w-full max-w-6xl gap-6 px-5 py-10 sm:px-10 sm:py-14 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-end lg:gap-12">
+              <p
+                className={`leading-[0.95] font-bold tracking-[-0.04em] text-balance ${tone.word} ${
+                  verdict.label === "unconfirmed" ? "text-[clamp(3rem,6vw,4.5rem)]" : "text-[clamp(3.5rem,9vw,6rem)]"
+                }`}
+              >
+                {LABEL_TEXT[verdict.label]}
+              </p>
+              <div className="flex flex-col gap-5 lg:pb-2">
+                <p className="text-2xl leading-snug font-medium text-pretty text-foreground sm:text-3xl">{verdict.oneLine}</p>
+                <ConfidenceScale confidence={verdict.confidence} />
+                <p className="text-base text-foreground/70 sm:hidden">Checked {ago(result.createdAt)}</p>
+              </div>
+            </div>
+          </section>
+        )}
 
-      {steps.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-sm font-medium text-muted-foreground">What TruthAgent did</h2>
-          <ol className="flex flex-col gap-1.5 text-sm text-muted-foreground">
-            {steps.map((step, i) => (
-              <li key={i} className="flex items-center gap-2">
-                <StepStatusIcon status={step.status} />
-                <span>{step.line}</span>
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
-    </main>
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-14 px-5 pt-10 sm:gap-20 sm:px-10 sm:pt-14">
+          {!verdict && <p className="text-base text-muted-foreground sm:hidden">Checked {ago(result.createdAt)}</p>}
+
+          {mainClaim ? (
+            <section aria-labelledby="main-claim" className="flex flex-col gap-4">
+              <SectionTitle>
+                <span id="main-claim">Main claim</span>
+              </SectionTitle>
+              <blockquote className="max-w-4xl text-2xl leading-snug text-pretty text-foreground sm:text-[2rem]">
+                &ldquo;{mainClaim.original}&rdquo;
+              </blockquote>
+            </section>
+          ) : (
+            <p className="max-w-3xl text-2xl leading-snug text-foreground">
+              There&apos;s no text to check with this photo. Paste the message that came with it to check its story too.
+            </p>
+          )}
+
+          {/* Independent of the Verdict: a real photo can carry a False Claim. */}
+          {photoCheck && <PhotoCheckPanel photo={photoCheck} />}
+
+          {verdict && (
+            <section aria-labelledby="evidence" className="flex flex-col gap-8">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-8">
+                <SectionTitle>
+                  <span id="evidence">Evidence</span>
+                </SectionTitle>
+                <p className="text-lg text-foreground">
+                  <span className="font-semibold">{sources === 1 ? "1 Independent source" : `${sources} Independent sources`}</span>
+                  <span className="text-muted-foreground"> (sites repeating one report count once)</span>
+                </p>
+              </div>
+              <div className="grid gap-12 md:grid-cols-2 md:gap-0 md:divide-x md:divide-border">
+                <div className="md:pr-10">
+                  <LedgerColumn
+                    title="For the claim"
+                    items={evidence.filter((e) => e.stance === "supports")}
+                    sources={sides.supports.size}
+                    backs={backing === "supports" ? backRule : null}
+                  />
+                </div>
+                <div className="md:pl-10">
+                  <LedgerColumn
+                    title="Against the claim"
+                    items={evidence.filter((e) => e.stance === "contradicts")}
+                    sources={sides.contradicts.size}
+                    backs={backing === "contradicts" ? backRule : null}
+                  />
+                </div>
+              </div>
+            </section>
+          )}
+
+          {verdict && (
+            <section aria-labelledby="why" className="grid gap-6 border-t border-border pt-10 md:grid-cols-[14rem_1fr] md:gap-10">
+              <SectionTitle>
+                <span id="why">Why</span>
+              </SectionTitle>
+              <div className="flex max-w-3xl flex-col gap-6">
+                {verdict.reasoning.length > 0 && (
+                  <ol className="flex flex-col gap-4">
+                    {verdict.reasoning.map((step, i) => (
+                      <li key={i} className="flex flex-col gap-1.5 text-lg leading-relaxed text-foreground sm:flex-row sm:gap-4">
+                        <span className="w-fit shrink-0 rounded-md bg-muted px-2 py-0.5 text-base font-semibold text-muted-foreground sm:mt-0.5 sm:w-32 sm:text-center">
+                          {TAG_TEXT[step.tag]}
+                        </span>
+                        <span>
+                          {step.text}
+                          {step.evidenceIds.length > 0 && (
+                            <span className="text-muted-foreground">
+                              {" ("}
+                              {step.evidenceIds.map((evidenceId, j) => (
+                                <span key={evidenceId}>
+                                  {j > 0 && ", "}
+                                  <a href={`#${evidenceId}`} className="font-mono text-base font-medium text-primary underline">
+                                    {evidenceId}
+                                  </a>
+                                </span>
+                              ))}
+                              )
+                            </span>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                <p className="border-t border-border pt-5 text-lg text-foreground">
+                  <span className="font-semibold">What would change this: </span>
+                  {verdict.whatWouldChange}
+                </p>
+                <p className="text-base text-muted-foreground">{decidedBy(verdict)}</p>
+              </div>
+            </section>
+          )}
+
+          {steps.length > 0 && (
+            <section aria-labelledby="steps" className="grid gap-6 border-t border-border pt-10 md:grid-cols-[14rem_1fr] md:gap-10">
+              <SectionTitle>
+                <span id="steps">What TruthAgent did</span>
+              </SectionTitle>
+              <ol className="flex max-w-3xl flex-col gap-3 text-base text-muted-foreground">
+                {steps.map((step, i) => (
+                  <li key={i} className="flex items-start gap-3">
+                    <span className="mt-1 flex w-4 shrink-0 justify-center">
+                      <StepStatusIcon status={step.status} />
+                    </span>
+                    <span>{step.line}</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
+        </div>
+      </main>
+    </>
   );
 }
