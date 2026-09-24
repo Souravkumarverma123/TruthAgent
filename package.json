@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test lib/**/*.test.ts"
+    "test": "node --test lib/**/*.test.ts",
+    "accuracy": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/accuracy.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

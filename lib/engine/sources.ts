@@ -10,6 +10,18 @@ function matches(hostname: string, domains: string[]): boolean {
  * (the web_search `blocked_domains` format). */
 export const BLOCKED_DOMAINS = ["mediamass.net", "fakingnews.com", "theonion.com"];
 
+/** Outlets that are otherwise Evidence but whose fact-check desks published the answers to the accuracy set. */
+const FACT_CHECK_DESKS = ["thequint.com", "ptinews.com", "indiatoday.in"];
+
+/** For the accuracy run (#15): also blocks every fact-checking site, so the Engine can't copy an answer.
+ * Changes the list in place, for the rest of the process, because the agent's web_search tool holds this
+ * same array. web_search takes at most 20 domains, so keep the total within that (the accuracy test checks). */
+export function blockFactCheckers(): void {
+  for (const domain of [...FACT_CHECKERS, ...FACT_CHECK_DESKS]) {
+    if (!BLOCKED_DOMAINS.includes(domain)) BLOCKED_DOMAINS.push(domain);
+  }
+}
+
 export function isBlocked(hostname: string): boolean {
   return matches(hostname, BLOCKED_DOMAINS);
 }
@@ -49,6 +61,8 @@ export const FACT_CHECKERS = [
   "politifact.com",
   "fullfact.org",
   "factcheck.afp.com",
+  "factchecker.in",
+  "digiteye.in",
 ];
 
 export function isFactChecker(hostname: string): boolean {
