@@ -4,7 +4,7 @@
 import type OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import type { World } from "./boundary.ts";
-import { confidenceOf, originsBySide } from "./confidence.ts";
+import { confidenceOf, independentSources, originsBySide } from "./confidence.ts";
 import { MODELS } from "./models.ts";
 import { VerdictSchema, type Evidence, type HardClaimTrigger, type Verdict, type VerdictOutput } from "./schemas.ts";
 
@@ -79,7 +79,7 @@ function hardClaimTrigger(first: VerdictOutput, second: VerdictOutput, evidence:
  * parallel; a Hard claim gets one sol Verdict, and if sol isn't sure either it's Not confirmed yet. sol
  * is used nowhere else. Reasoning citing an Evidence id the Check never found is dropped. */
 export async function judge(claim: string, claimDate: string, evidence: Evidence[], world: World): Promise<Verdict> {
-  const { total } = originsBySide(evidence);
+  const total = independentSources(evidence);
   if (total === 0) {
     return {
       label: "unconfirmed",
