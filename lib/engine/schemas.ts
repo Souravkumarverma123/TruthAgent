@@ -209,12 +209,14 @@ export interface AgentStep {
   status: "running" | "done" | "failed";
 }
 
-/** Step events streamed from the Check endpoint. `cache` is added by issue #12. */
+/** Step events streamed from the Check endpoint. */
 export type CheckEvent =
   /** `claim` is null when there's nothing to check, e.g. a photo with no text. */
   | { type: "understood"; claim: { original: string; canonicalEn: string } | null }
   | ({ type: "step"; id: string } & AgentStep)
   | { type: "evidence"; id: string; site: string; stance: Evidence["stance"] }
   | { type: "verdict"; label: VerdictLabel; oneLine: string; escalated: boolean }
+  /** A saved Result answers this Message: the same Message (`exact`) or the same Claim (`claim`). `done` follows. */
+  | { type: "cache"; hit: "exact" | "claim"; id: string }
   | { type: "done"; id: string }
   | { type: "error"; message: string };
