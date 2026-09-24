@@ -227,7 +227,7 @@ lib/schemas.ts               Zod schemas
 lib/sources.ts               domain tiers, block list, authority rule per claim type, TTLs
 lib/cache.ts                 Redis helpers
 lib/confidence.ts            formula + one self-check
-scripts/eval.ts              runs the 40-claim test set (fact-check sites blocked), prints accuracy
+scripts/accuracy.ts          runs lib/accuracy/claims.json live (fact-check sites blocked), prints accuracy (docs/accuracy.md)
 ```
 
 ## 9. First hour: settle the [verify] items

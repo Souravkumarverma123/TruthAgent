@@ -1,0 +1,186 @@
+[
+  {
+    "id": "false-500-march-2026",
+    "claim": "Circulation of Rs 500 notes will be discontinued from March 2026",
+    "expected": "false",
+    "source": {
+      "publisher": "BOOM",
+      "rating": "False",
+      "url": "https://www.boomlive.in/fact-check/fact-check-rbi-rs500-note-ban-discontinued-march-2026-viral-false-claim-28745"
+    },
+    "note": "The RBI notice only asked ATMs to also dispense Rs 100 and Rs 200 notes."
+  },
+  {
+    "id": "false-bank-weekends",
+    "claim": "Banks in India will be closed every Saturday and Sunday, as per new RBI rules.",
+    "expected": "false",
+    "source": {
+      "publisher": "The Quint",
+      "rating": "False",
+      "url": "https://www.thequint.com/news/webqoof/bank-holidays-saturday-sunday-viral-fact-check"
+    }
+  },
+  {
+    "id": "false-black-ink-cheques",
+    "claim": "RBI has banned cheques written in black ink from January 1st, 2025.",
+    "expected": "false",
+    "source": {
+      "publisher": "BOOM",
+      "rating": "False",
+      "url": "https://www.boomlive.in/fact-check/rbi-false-claim-black-ink-cheques-ban-social-media-viral-2025-27496"
+    }
+  },
+  {
+    "id": "false-5000-note",
+    "claim": "The Reserve Bank of India will soon issue a new ₹5000 note.",
+    "expected": "false",
+    "source": {
+      "publisher": "Factly",
+      "rating": "False",
+      "url": "https://factly.in/the-reserve-bank-of-india-has-not-released-%E2%82%B95000-notes-nor-issued-any-circular-regarding-this/"
+    }
+  },
+  {
+    "id": "false-india-exits-who",
+    "claim": "India will now exit the WHO, following the USA's footsteps.",
+    "expected": "false",
+    "source": {
+      "publisher": "The Quint",
+      "rating": "False",
+      "url": "https://www.thequint.com/news/webqoof/who-exit-india-usa-old-misleading-information-fact-check"
+    },
+    "note": "Out of context: an old story about the US leaving the WHO, reshared as if India were following."
+  },
+  {
+    "id": "false-bbc-chandrayaan-3",
+    "claim": "A BBC anchor slammed India's Chandrayaan-3 mission, saying India has too much poverty to spend on space.",
+    "expected": "false",
+    "source": {
+      "publisher": "Alt News, BOOM and The Quint",
+      "rating": "False",
+      "url": "https://www.altnews.in/no-bbc-did-not-criticize-chandrayaan-3-old-clip-viral-false-report-by-times-now-india-tv-zee-news-other-outlets/"
+    },
+    "note": "Out of context: a 2019 clip from the Chandrayaan-2 mission, reshared in August 2023 as a reaction to Chandrayaan-3."
+  },
+  {
+    "id": "false-dharmendra-rumour",
+    "claim": "Dharmendra has died",
+    "claimDate": "2025-11-11",
+    "expected": "false",
+    "source": {
+      "publisher": "Business Standard (his family said he was alive in hospital)",
+      "rating": "Death hoax",
+      "url": "https://www.business-standard.com/india-news/celebrity-death-hoaxes-dharmendra-amartya-sen-mark-twain-fake-news-125111101335_1.html"
+    },
+    "note": "Same Claim as true-dharmendra-died, judged as of the day of the hoax. He died on 24 November 2025."
+  },
+  {
+    "id": "misleading-tax-clearance",
+    "claim": "Every Indian must get an income tax clearance certificate before travelling abroad from 1 October 2024.",
+    "expected": "misleading",
+    "source": {
+      "publisher": "BOOM",
+      "rating": "Misleading",
+      "url": "https://www.boomlive.in/fact-check/is-tax-clearance-certificate-required-for-all-indians-traveling-abroad-a-factcheck-26258"
+    },
+    "note": "The certificate is only for people with big tax arrears or serious financial irregularities."
+  },
+  {
+    "id": "misleading-economy-rank",
+    "claim": "India went from the 3rd largest economy in 2011 to the 164th fastest growing economy in 2021.",
+    "expected": "misleading",
+    "source": {
+      "publisher": "FactChecker.in",
+      "rating": "Misleading",
+      "url": "https://www.factchecker.in/fact-check/subramanian-swamy-congs-udit-raj-make-misleading-claim-on-indias-economic-growth-826085"
+    },
+    "note": "Compares size (PPP) with growth rate, and the 164th rank used old 2020 IMF projections."
+  },
+  {
+    "id": "misleading-upi-fee",
+    "claim": "All UPI transactions above ₹2000 will have a 1.1% fee levied.",
+    "expected": "misleading",
+    "source": {
+      "publisher": "BOOM and Factly",
+      "rating": "Misleading",
+      "url": "https://www.boomlive.in/fact-check/business/factchecking-claims-on-all-upi-transactions-above-2000-being-charged-a-11-fee-21500"
+    },
+    "note": "The 1.1% interchange fee applies to merchant payments made with prepaid wallets (PPIs), not ordinary bank-account UPI payments."
+  },
+  {
+    "id": "misleading-gst-education",
+    "claim": "18% GST is applicable on education in India.",
+    "expected": "misleading",
+    "source": {
+      "publisher": "Factly",
+      "rating": "Misleading",
+      "url": "https://factly.in/18-gst-is-applicable-only-for-private-coaching-institutes-services-provided-by-regular-and-vocational-educational-institutes-are-gst-free/"
+    },
+    "note": "18% applies to private coaching institutes; services of regular and vocational educational institutions are GST-free.",
+    "demo": true
+  },
+  {
+    "id": "outdated-gst-small-cars",
+    "claim": "GST on small cars in India is 28%.",
+    "expected": "outdated",
+    "source": {
+      "publisher": "Kotak Mutual Fund on GST Council's decision of 3 Sept 2025",
+      "rating": "Changed 22 Sept 2025",
+      "url": "https://www.kotakmf.com/Information/blogs/gst-2-point-0"
+    },
+    "note": "True until 21 September 2025; GST 2.0 moved small cars to 18%.",
+    "demo": true
+  },
+  {
+    "id": "outdated-hasina-pm",
+    "claim": "Sheikh Hasina is the Prime Minister of Bangladesh.",
+    "expected": "outdated",
+    "source": {
+      "publisher": "Al Jazeera",
+      "rating": "Changed 5 Aug 2024",
+      "url": "https://www.aljazeera.com/news/2026/2/17/incoming-bangladesh-pm-tarique-rahman-lawmakers-sworn-into-parliament"
+    },
+    "note": "Resigned on 5 August 2024; Tarique Rahman was sworn in as Prime Minister on 17 February 2026."
+  },
+  {
+    "id": "true-2000-note-withdrawn",
+    "claim": "The RBI announced on 19 May 2023 that it was withdrawing the ₹2000 note from circulation.",
+    "expected": "true",
+    "source": {
+      "publisher": "Business Today",
+      "rating": "True",
+      "url": "https://www.businesstoday.in/latest/in-focus/story/rbi-decides-to-withdraw-rs-2000-bank-notes-from-circulation-but-will-continue-to-be-legal-tender-382056-2023-05-19"
+    }
+  },
+  {
+    "id": "true-chandrayaan-3",
+    "claim": "Chandrayaan-3 landed near the Moon's south pole on 23 August 2023.",
+    "expected": "true",
+    "source": {
+      "publisher": "ISRO",
+      "rating": "True",
+      "url": "https://www.isro.gov.in/Chandrayaan3.html"
+    }
+  },
+  {
+    "id": "true-gst-2-0",
+    "claim": "India's GST rate cuts took effect on 22 September 2025, removing the 12% and 28% slabs.",
+    "expected": "true",
+    "source": {
+      "publisher": "Kotak Mutual Fund on the GST Council's decision",
+      "rating": "True",
+      "url": "https://www.kotakmf.com/Information/blogs/gst-2-point-0"
+    }
+  },
+  {
+    "id": "true-dharmendra-died",
+    "claim": "Dharmendra has died",
+    "expected": "true",
+    "source": {
+      "publisher": "All India Radio",
+      "rating": "True",
+      "url": "https://www.newsonair.gov.in/legendary-actor-dharmendra-passes-away/"
+    },
+    "note": "Judged as of today; the same Claim was False on 11 Nov 2025."
+  }
+]
