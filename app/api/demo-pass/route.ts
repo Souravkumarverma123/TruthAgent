@@ -13,5 +13,5 @@ export async function GET(request: Request) {
     sameSite: "lax",
     maxAge: 60 * 60 * 24 * 7,
   });
-  return Response.redirect(new URL("/", request.url), 303);
+  return Response.redirect(new URL("/check", request.url), 303);
 }
