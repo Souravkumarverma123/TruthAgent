@@ -221,7 +221,7 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
         <SiteBar />
         <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-start gap-6 px-5 py-20 sm:px-10">
           <p className="max-w-2xl text-2xl text-foreground">We couldn&apos;t find that Result. It may have expired, or the link is wrong.</p>
-          <Link href="/" className="text-lg font-semibold text-primary underline">
+          <Link href="/check" className="text-lg font-semibold text-primary underline">
             Check a forward
           </Link>
         </main>
@@ -251,8 +251,8 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
           {photoCheck ? (
             <p className="max-w-72 text-base text-muted-foreground">
               To check it again, add the photo on the{" "}
-              <Link href="/" className="font-medium text-primary underline">
-                home page
+              <Link href="/check" className="font-medium text-primary underline">
+                check page
               </Link>
               .
             </p>
