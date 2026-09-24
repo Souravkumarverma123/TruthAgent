@@ -139,16 +139,11 @@ export default function Home() {
     <>
       <SiteBar />
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 sm:px-6">
-        {/* The empty chat: what this is, centred; the live steps and any error follow it, like replies. */}
+        {/* The empty chat: one quiet line, centred; the live steps and any error follow it, like replies. */}
         <div className="flex flex-1 flex-col justify-center gap-8 py-10">
-          <div className="flex flex-col items-center gap-3 text-center">
-            <h1 className="text-[clamp(2rem,4.5vw,3rem)] leading-[1.05] font-bold tracking-[-0.04em] text-balance text-foreground">
-              Is this forward true?
-            </h1>
-            <p className="max-w-lg text-lg leading-relaxed text-muted-foreground">
-              Paste a forwarded message or add its photo, and we&apos;ll check it, with proof.
-            </p>
-          </div>
+          <h1 className="text-center text-2xl font-semibold tracking-[-0.02em] text-balance text-foreground/80">
+            Paste a forward. We&apos;ll check if it&apos;s true.
+          </h1>
 
           {error && (
             <p role="alert" className="flex items-start gap-2 text-lg text-destructive">
