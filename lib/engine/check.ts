@@ -121,8 +121,9 @@ export async function* check(message: string, options: CheckOptions = {}): Async
     return;
   }
 
-  // It goes into the agent's and the Verdict's prompts, so only a real day gets in. A day ahead of UTC's
-  // is allowed: it's already tomorrow in India for part of UTC's day.
+  // It goes into the agent's and the Verdict's prompts, so only a real day gets in.
+  // ponytail: a day ahead of UTC's is allowed (it's already tomorrow in India for part of UTC's day), so
+  // anyone can judge as of tomorrow; take the caller's time zone if that matters.
   const tomorrow = new Date(Date.now() + 24 * HOUR * 1000).toISOString().slice(0, 10);
   if (options.claimDate !== undefined && !(calendarDay(options.claimDate) && options.claimDate <= tomorrow)) {
     yield { type: "error", message: "That date doesn't work — please pick a day up to today." };

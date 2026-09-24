@@ -20,7 +20,7 @@ export function RecheckButton({ message, claimDate }: { message: string; claimDa
     const form = new FormData();
     form.append("message", message);
     form.append("recheck", "1");
-    if (claimDate) form.append("claimDate", claimDate);
+    form.append("claimDate", claimDate ?? new Date().toLocaleDateString("en-CA"));
     for await (const event of runCheck(form)) {
       if (event.type === "step") setLine(event.line);
       else if (event.type === "done") router.push(`/check/${event.id}`);

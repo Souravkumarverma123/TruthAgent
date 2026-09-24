@@ -101,8 +101,8 @@ export default function Home() {
 
     const form = new FormData();
     form.append("message", message);
-    // Today is the Engine's default: sending it would miss the cache for a forward checked without one.
-    if (claimDate && claimDate !== today) form.append("claimDate", claimDate);
+    // Always sent, so the Message is judged as of the day the person saw here, not UTC's.
+    if (claimDate) form.append("claimDate", claimDate);
     if (photo) {
       form.append("image", photo.blob, photo.name);
       if (photo.exif) form.append("exif", JSON.stringify(photo.exif));
@@ -201,7 +201,7 @@ export default function Home() {
             </summary>
             <label className="mt-3 flex flex-col gap-2">
               <span>When did you get this?</span>
-              <span className="text-base text-muted-foreground">We check whether it was true on that day. Leave it as today for most forwards.</span>
+              <span className="text-base text-muted-foreground">We check whether it was true on that day. Leave it as today unless it came a while ago.</span>
               <input
                 type="date"
                 value={claimDate}

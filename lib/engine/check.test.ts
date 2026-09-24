@@ -562,7 +562,8 @@ test("replay: cache hits don't count toward the limits; the same forward still o
 });
 
 test("replay: 'Dharmendra died' is False as of 11 Nov 2025 and True as of today, and the Result keeps the Claim date used", async () => {
-  const rumour = await resultOf(await collect("Dharmendra died", scenarios.DHARMENDRA_RUMOUR, { claimDate: "2025-11-11" }));
+  const claimDate = scenarios.DHARMENDRA_RUMOUR_DATE; // 11 Nov 2025
+  const rumour = await resultOf(await collect("Dharmendra died", scenarios.DHARMENDRA_RUMOUR, { claimDate }));
   const today = await resultOf(await collect("Dharmendra died", scenarios.DHARMENDRA_DIED));
 
   assert.equal(rumour.verdict!.label, "false");

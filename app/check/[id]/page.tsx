@@ -238,6 +238,8 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
   const tone = verdict ? LABEL_TONE[verdict.label] : null;
   const LabelIcon = verdict && LABEL_MEANING[verdict.label].icon;
   // A Claim date on the day of the Check is the default, so Re-check judges as of its own today instead.
+  // ponytail: createdAt's day is UTC's, so a Check made just after midnight in India looks like a chosen
+  // date and Re-check keeps it; save whether the date was chosen if that confuses anyone.
   const chosenClaimDate = result.claimDate !== result.createdAt.slice(0, 10) ? result.claimDate : undefined;
 
   return (
