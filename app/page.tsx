@@ -1,5 +1,6 @@
 "use client";
 
+import { SiteBar } from "@/components/site-bar";
 import { StepStatusIcon } from "@/components/step-status-icon";
 import { Button } from "@/components/ui/button";
 import { runCheck } from "@/lib/check-stream.ts";
@@ -12,6 +13,7 @@ import {
   type AgentStep,
   type Exif,
 } from "@/lib/engine/schemas.ts";
+import { ArrowRightIcon, CircleAlertIcon, ImagePlusIcon, LoaderCircleIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
@@ -127,66 +129,97 @@ export default function Home() {
     setRunning(false);
   }
 
+  const canCheck = !running && (message.trim().length > 0 || photo !== null);
+
   return (
-    <div className="flex flex-1 items-center justify-center bg-zinc-50 dark:bg-black">
-      <main className="flex w-full max-w-xl flex-col gap-4 px-6 py-16">
-        <h1 className="text-2xl font-semibold text-foreground">Is this forward true?</h1>
-        <p className="text-muted-foreground">Paste a forwarded message or add its photo, and we&apos;ll check it, with proof.</p>
-
-        <textarea
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          maxLength={MAX_MESSAGE_LENGTH}
-          disabled={running}
-          placeholder="Paste the forward here…"
-          rows={8}
-          className="w-full resize-none rounded-lg border border-input bg-background p-3 text-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-        />
-
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="cursor-pointer rounded-lg border border-input bg-background px-3 py-2 text-sm font-medium text-foreground has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50">
-            {photo ? "Change photo" : "Add photo / screenshot"}
-            <input
-              type="file"
-              accept={IMAGE_TYPES.join(",")}
-              disabled={running}
-              onChange={(e) => {
-                onPhoto(e.target.files?.[0]);
-                e.target.value = ""; // so picking the same file again after Remove still fires
-              }}
-              className="sr-only"
-            />
-          </label>
-          {photo && (
-            <span className="flex items-center gap-2 text-sm text-muted-foreground">
-              {photo.name}
-              <button type="button" onClick={() => {
-                  pick.current++;
-                  setPhoto(null);
-                }} disabled={running} className="underline underline-offset-2">
-                Remove
-              </button>
-            </span>
-          )}
+    <>
+      <SiteBar />
+      <main className="mx-auto grid w-full max-w-6xl flex-1 gap-10 px-5 pt-6 pb-20 sm:px-10 sm:pt-12 lg:pt-24 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-16">
+        <div className="flex flex-col gap-5 lg:pt-4">
+          <h1 className="text-[clamp(2.75rem,6vw,4.5rem)] leading-[1.02] font-bold tracking-[-0.04em] text-balance text-foreground">
+            Is this forward true?
+          </h1>
+          <p className="max-w-md text-xl leading-relaxed text-muted-foreground sm:text-2xl">
+            Paste a forwarded message or add its photo, and we&apos;ll check it, with proof.
+          </p>
         </div>
 
-        <Button onClick={onCheck} disabled={running || (message.trim().length === 0 && !photo)} size="lg">
-          {running ? "Checking…" : "Check if it's true"}
-        </Button>
+        <div className="flex flex-col gap-5">
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            maxLength={MAX_MESSAGE_LENGTH}
+            disabled={running}
+            placeholder="Paste the forward here…"
+            rows={7}
+            aria-label="The forward to check"
+            className="min-h-56 w-full resize-none rounded-3xl border-[1.5px] border-input bg-background p-6 text-xl leading-relaxed text-foreground shadow-[0_1px_2px_rgba(16,23,20,0.04)] transition-colors outline-none placeholder:text-muted-foreground hover:border-foreground/30 focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/15 disabled:bg-muted/60"
+          />
 
-        {rows.length > 0 && (
-          <ul aria-live="polite" className="flex flex-col gap-1.5 text-sm text-muted-foreground">
-            {rows.map((row) => (
-              <li key={row.id} className="flex items-center gap-2">
-                {row.status && <StepStatusIcon status={row.status} />}
-                <span>{row.line}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex h-12 cursor-pointer items-center gap-2 rounded-full border-[1.5px] border-input bg-background px-5 text-base font-semibold text-foreground transition-colors hover:border-foreground/30 hover:bg-muted has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 has-[:focus-visible]:border-primary has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-primary/15">
+              <ImagePlusIcon aria-hidden className="size-5 text-primary" />
+              {photo ? "Change photo" : "Add photo / screenshot"}
+              <input
+                type="file"
+                accept={IMAGE_TYPES.join(",")}
+                disabled={running}
+                onChange={(e) => {
+                  onPhoto(e.target.files?.[0]);
+                  e.target.value = ""; // so picking the same file again after Remove still fires
+                }}
+                className="sr-only"
+              />
+            </label>
+            {photo && (
+              <span className="flex h-12 min-w-0 items-center gap-3 rounded-full bg-muted pr-2 pl-5 text-base text-foreground">
+                <span className="truncate">{photo.name}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    pick.current++;
+                    setPhoto(null);
+                  }}
+                  disabled={running}
+                  className="h-9 shrink-0 rounded-full px-3 text-sm font-semibold text-primary underline underline-offset-2 hover:bg-background disabled:opacity-50"
+                >
+                  Remove
+                </button>
+              </span>
+            )}
+          </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+          <Button
+            onClick={onCheck}
+            disabled={!canCheck}
+            className="h-16 w-full rounded-2xl text-xl font-semibold shadow-[0_8px_20px_-10px_rgba(30,91,69,0.55)] hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none [&_svg:not([class*='size-'])]:size-5"
+          >
+            {running ? <LoaderCircleIcon aria-hidden className="animate-spin" /> : null}
+            {running ? "Checking…" : "Check if it's true"}
+            {running ? null : <ArrowRightIcon aria-hidden />}
+          </Button>
+
+          {error && (
+            <p role="alert" className="flex items-start gap-2 text-lg text-destructive">
+              <CircleAlertIcon aria-hidden className="mt-1 size-5 shrink-0" />
+              {error}
+            </p>
+          )}
+
+          {rows.length > 0 && (
+            <ol aria-live="polite" className="flex flex-col gap-3 border-t border-border pt-6 text-lg text-foreground/80">
+              {rows.map((row) => (
+                <li key={row.id} className="step-in flex items-start gap-3">
+                  <span className="mt-1.5 flex w-5 shrink-0 justify-center">
+                    {row.status ? <StepStatusIcon status={row.status} /> : <span aria-hidden className="mt-1 size-2 rounded-full bg-primary" />}
+                  </span>
+                  <span>{row.line}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
       </main>
-    </div>
+    </>
   );
 }

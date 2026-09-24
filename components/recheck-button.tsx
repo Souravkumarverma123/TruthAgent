@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { runCheck } from "@/lib/check-stream.ts";
+import { RotateCwIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -27,11 +28,12 @@ export function RecheckButton({ message }: { message: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-1">
-      <Button variant="outline" size="sm" onClick={onRecheck} disabled={running} className="w-fit">
+    <div className="flex flex-col items-end gap-1">
+      <Button variant="outline" onClick={onRecheck} disabled={running} className="h-10 w-fit rounded-full px-4 text-sm">
+        <RotateCwIcon aria-hidden className={running ? "animate-spin" : undefined} />
         {running ? "Checking again…" : "Re-check"}
       </Button>
-      {running && line && <p aria-live="polite" className="text-xs text-muted-foreground">{line}</p>}
+      {running && line && <p aria-live="polite" className="max-w-64 text-right text-xs text-muted-foreground">{line}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
     </div>
   );
