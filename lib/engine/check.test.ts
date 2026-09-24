@@ -510,15 +510,17 @@ test("replay: the same forward checked again (spacing, emojis and 'Forwarded' as
   assert.equal(doneId(again), doneId(first));
 });
 
-test("replay: a reworded version of a checked Claim hits the Claim cache", async () => {
+test("replay: a reworded version of a checked Claim hits the Claim cache, and that wording then hits the exact cache", async () => {
   const world = replayWorld(scenarios.SOME_FORWARD);
   const first = await run(world, "Some forward");
   // Replay's Understand gives the same canonical Claim whatever the wording, as luna would for a rewording.
   const reworded = await run(world, "A forward, put another way");
+  const again = await run(world, "A forward, put another way");
 
   assert.equal(cacheHit(reworded), "claim");
   assert.equal(doneId(reworded), doneId(first));
   assert.ok(!reworded.some((e) => e.type === "step" || e.type === "verdict"), "no agent steps or Verdict run again");
+  assert.equal(cacheHit(again), "exact");
 });
 
 test("replay: two simultaneous Checks of one Claim run the pipeline once", async () => {

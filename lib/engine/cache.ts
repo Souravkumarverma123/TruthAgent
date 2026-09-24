@@ -6,17 +6,17 @@ import type { Result } from "./schemas.ts";
 
 const sha256 = (data: string | Uint8Array) => createHash("sha256").update(data).digest("hex");
 
-/** Lowercase, single spaces, no emojis and no "Forwarded" label: one forward, however it was pasted. */
+/** Lowercase, single spaces, no emojis and no "Forwarded" label: one Message, however it was pasted. */
 function cleaned(text: string): string {
   return text
     .toLowerCase()
-    .replace(/\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|[‍️⃣]/gu, "")
+    .replace(/\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|[\u200d\ufe0f\u20e3]/gu, "")
     .replace(/\bforwarded( many times)?\b/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-/** The same forward: its cleaned text, its photo, and the Claim date only when the user set one. */
+/** The same Message: its cleaned text, its photo, and the Claim date only when the user set one. */
 export function exactKey(message: string, image: Uint8Array | undefined, claimDate: string | undefined): string {
   return `exact:${sha256([cleaned(message), image ? sha256(image) : "", claimDate ?? ""].join("|"))}`;
 }
@@ -34,7 +34,9 @@ export async function cached(world: World, key: string): Promise<Result | null> 
 
 /** A Check that dies holding the lock only holds it this long. */
 const LOCK_SECONDS = 120;
-/** How often a waiting Check looks for the running one's Result: 1 Redis read per waiter per second. */
+/** How often a waiting Check looks for the running one's Result: 1 Redis read per waiter per second.
+ * ponytail: waiters poll and stream nothing while they wait (up to LOCK_SECONDS, inside Vercel's 300s);
+ * add a "someone is checking this right now" step, or pub/sub, if bursts feel slow. */
 const WAIT_MS = 1000;
 
 const lockKey = (key: string) => `lock:${key}`;

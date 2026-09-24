@@ -116,7 +116,7 @@ const DAY = 24 * 60 * MINUTE;
 const BREAKING = 15 * MINUTE;
 
 /** How long the cache keeps answering a Claim of this type with its saved Result (docs/architecture.md §6). */
-export const CACHE_SECONDS: Record<ClaimType, number> = {
+const CACHE_SECONDS: Record<ClaimType, number> = {
   death_health: BREAKING,
   disaster_weather: BREAKING,
   govt_scheme_law: DAY,

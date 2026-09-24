@@ -95,6 +95,11 @@ async function limitMessage(world: World, ip: string): Promise<string | null> {
   return null;
 }
 
+/** Gives back a Check's count toward both limits: for a cache hit known only after Understand. */
+async function uncountLimits(world: World, ip: string): Promise<void> {
+  await Promise.all([world.uncount(ipCounter(ip)), world.uncount(DAY_COUNTER)]);
+}
+
 /** No Origin for or against the Claim means nothing independent backs it, whether the Evidence is
  * only Fact-checks or Origin tagging failed. The Verdict is then "Not confirmed yet" whatever the
  * model says (CONTEXT.md "Not confirmed yet"). */
@@ -245,13 +250,13 @@ export async function* check(message: string, options: CheckOptions = {}): Async
   const world = options.world ?? defaultWorld(message);
   const exact = exactKey(message, image?.bytes, options.claimDate);
   const hitEvents = (hit: "exact" | "claim", result: Result): CheckEvent[] => [
-    { type: "cache", hit, checkedAt: result.createdAt },
+    { type: "cache", hit, id: result.id },
     { type: "done", id: result.id },
   ];
   let locked: string | null = null;
 
   try {
-    // The same forward again: no AI call, so it returns before the limit and never counts.
+    // The same Message again: no AI call, so it returns before the limit and never counts.
     const exactHit = options.recheck ? null : await cached(world, exact);
     if (exactHit) {
       yield* hitEvents("exact", exactHit);
@@ -276,8 +281,10 @@ export async function* check(message: string, options: CheckOptions = {}): Async
     if (claimCache && !options.recheck) {
       const claimHit = await claimResultOrLock(world, claimCache);
       if (claimHit) {
-        // Known only after Understand, so this Check was counted: its count goes back.
-        if (!options.demoPass) await Promise.all([world.uncount(ipCounter(ip)), world.uncount(DAY_COUNTER)]);
+        // Known only after Understand, so this Check was counted: its count goes back. This wording
+        // gets its own exact pointer, so next time it skips Understand and the limit too.
+        if (!options.demoPass) await uncountLimits(world, ip);
+        await world.setKey(exact, claimHit.id, cacheSeconds(claim.claim_type, claimHit));
         yield* hitEvents("claim", claimHit);
         return;
       }

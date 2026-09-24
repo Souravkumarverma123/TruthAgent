@@ -216,7 +216,7 @@ export type CheckEvent =
   | ({ type: "step"; id: string } & AgentStep)
   | { type: "evidence"; id: string; site: string; stance: Evidence["stance"] }
   | { type: "verdict"; label: VerdictLabel; oneLine: string; escalated: boolean }
-  /** A saved Result answers this Message: the same forward (`exact`) or the same Claim (`claim`). `done` follows. */
-  | { type: "cache"; hit: "exact" | "claim"; checkedAt: string }
+  /** A saved Result answers this Message: the same Message (`exact`) or the same Claim (`claim`). `done` follows. */
+  | { type: "cache"; hit: "exact" | "claim"; id: string }
   | { type: "done"; id: string }
   | { type: "error"; message: string };
