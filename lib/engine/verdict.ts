@@ -15,11 +15,17 @@ const HARD_PROBABILITY = 0.7;
  * §5 ⑦): true = Supported, false = Refuted, misleading = Conflicting Evidence/Cherrypicking,
  * outdated = Refuted as of the Claim date but Supported earlier, unconfirmed = Not Enough Evidence. Kept out of the prompt so the AVeriTeC wording can't pull the model. */
 const LABEL_DEFINITIONS =
-  "true: the Evidence backs the core of the Claim. " +
-  "false: the core of the Claim was never true. " +
-  "misleading: the facts are right but the framing or conclusion is wrong. " +
+  "true: the Evidence backs the core of the Claim, even if it leaves out a minor exception. " +
+  "false: what the Claim describes didn't happen or doesn't exist, e.g. an announcement, rule or event nobody made. " +
+  "misleading: what the Claim describes is real (a real rule, charge, figure, event or quote), but the Claim gets its " +
+  "scope or meaning wrong, e.g. a rule for some people presented as a rule for everyone. " +
   "outdated: the Claim was true at an earlier date and isn't as of the Claim date. " +
-  "unconfirmed: too few Independent sources either way; never guess.";
+  "unconfirmed: the Evidence can't tell whether the core of the Claim is true; never guess. Not for a detail left " +
+  "unproven, and not just because the future can't be proven.";
+
+/** Labels whose meaning has Evidence on both sides: the real part and what the Claim gets wrong, or what was
+ * true then and what's true now. So for them, Independent sources on both sides aren't a disagreement. */
+const BOTH_SIDES: ReadonlySet<VerdictOutput["label"]> = new Set(["misleading", "outdated"]);
 
 async function liveVerdict(
   client: OpenAI,
@@ -35,6 +41,9 @@ async function liveVerdict(
       `Today's date is ${new Date().toISOString().slice(0, 10)}. Judge the Claim as of ${claimDate}, ` +
       `using only the Evidence given. Labels: ${LABEL_DEFINITIONS} ` +
       "Mind each item's date: something first reported after the Claim date most likely hadn't happened yet as of it. " +
+      "An item with no date was read today: it shows how things stand now, not since when. " +
+      "A Claim that something official will happen (a new banknote, a rule, a withdrawal) says it has been decided " +
+      "or announced: if the Authority or reliable reports deny it, and nothing shows it was decided, it is false. " +
       "Give a one-line plain-language reason. Evidence marked quoteVerified: false couldn't be checked " +
       "against its page; items sharing an Origin count as one Independent source, and items marked " +
       "factCheck: true repeat someone else's verdict, so they are a lead, not an Independent source. " +
@@ -71,7 +80,7 @@ function hardClaimTrigger(first: VerdictOutput, second: VerdictOutput, evidence:
   if (first.label !== second.label) return "luna_disagreed";
   if (Math.min(topProbability(first), topProbability(second)) < HARD_PROBABILITY) return "unsure";
   const sides = originsBySide(evidence);
-  if (sides.supports.size > 0 && sides.contradicts.size > 0) return "sources_disagree";
+  if (sides.supports.size > 0 && sides.contradicts.size > 0 && !BOTH_SIDES.has(first.label)) return "sources_disagree";
   return null;
 }
 

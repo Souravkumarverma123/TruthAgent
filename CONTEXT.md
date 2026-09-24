@@ -53,7 +53,7 @@ _Avoid_: counting websites or articles
 Whoever owns the fact for a type of Claim: family or hospital for a death, RBI for currency.
 
 **Hard claim**:
-A Claim whose Verdict gets a second opinion from the stronger model: the two quick verdicts disagree, the top verdict is under 70% likely, or Independent sources disagree.
+A Claim whose Verdict gets a second opinion from the stronger model: the two quick verdicts disagree, the top verdict is under 70% likely, or Independent sources disagree (except on a Misleading or Outdated verdict, where Evidence on both sides is what the label means).
 
 ### Output
 

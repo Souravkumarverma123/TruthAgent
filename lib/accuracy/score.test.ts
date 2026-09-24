@@ -34,10 +34,25 @@ test("the summary counts right answers per label and the escalation rate among C
   ];
   assert.deepEqual(summarize(outcomes), {
     right: 1,
+    rightWay: 1,
     total: 3,
     byLabel: { true: { right: 0, total: 1 }, false: { right: 1, total: 1 }, outdated: { right: 0, total: 1 } },
     escalationRate: 0.5,
   });
+});
+
+test("the right way: any of False, Misleading or Outdated for a Claim that isn't true, but never Not confirmed yet", () => {
+  const [falseClaim, misleadingClaim, trueClaim] = ["false-bank-weekends", "misleading-upi-fee", "true-chandrayaan-3"].map(
+    (id) => claims.find((c) => c.id === id)!,
+  );
+  const rightWay = (claim: AccuracyClaim, got: Outcome["got"]) => summarize([{ claim, got, escalated: false }]).rightWay;
+
+  assert.equal(rightWay(falseClaim, "misleading"), 1);
+  assert.equal(rightWay(misleadingClaim, "outdated"), 1);
+  assert.equal(rightWay(falseClaim, "true"), 0);
+  assert.equal(rightWay(falseClaim, "unconfirmed"), 0);
+  assert.equal(rightWay(trueClaim, "misleading"), 0);
+  assert.equal(rightWay(trueClaim, "error"), 0);
 });
 
 // Its own file, so its own process: blocking changes the list for the rest of the process. It goes in

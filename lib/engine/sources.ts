@@ -105,7 +105,8 @@ const TIER_2 = [
 ];
 
 export function tierOf(hostname: string): Tier {
-  if (matches(hostname, TIER_1)) return 1;
+  // Any country's government domain (.gov.bd, .gov.uk), not just the ones listed.
+  if (matches(hostname, TIER_1) || /\.gov\.[a-z]{2}$/.test(hostname)) return 1;
   if (matches(hostname, TIER_2)) return 2;
   return 3;
 }
