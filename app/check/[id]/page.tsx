@@ -1,8 +1,17 @@
 import { RecheckButton } from "@/components/recheck-button";
 import { StepStatusIcon } from "@/components/step-status-icon";
 import { getResult } from "@/lib/engine/boundary.ts";
-import type { Confidence, Evidence, PhotoCheck, ReasoningStep, Result, Tier, Verdict, VerdictLabel } from "@/lib/engine/schemas.ts";
-import { isFactChecker, tierOf } from "@/lib/engine/sources.ts";
+import { independentSources } from "@/lib/engine/confidence.ts";
+import type {
+  Confidence,
+  Evidence,
+  HardClaimTrigger,
+  PhotoCheck,
+  ReasoningStep,
+  Tier,
+  Verdict,
+  VerdictLabel,
+} from "@/lib/engine/schemas.ts";
 import Link from "next/link";
 
 const LABEL_TEXT: Record<VerdictLabel, string> = {
@@ -37,46 +46,6 @@ function ago(createdAt: string): string {
   const unit = AGO_UNITS.find(([, size]) => seconds >= size);
   if (!unit) return "just now";
   return new Intl.RelativeTimeFormat("en", { numeric: "auto" }).format(-Math.floor(seconds / unit[1]), unit[0]);
-}
-
-/** Saved Results last 30 days, so a proof page can be asked for one saved before a field
- * existed. What's there is shown; what isn't is worked out from the url or left out. */
-type StoredResult = Omit<Result, "message" | "verdict" | "evidence" | "independentSources" | "steps" | "photoCheck"> & {
-  message: Partial<Result["message"]>;
-  verdict: (Pick<Verdict, "label" | "oneLine"> & Partial<Verdict>) | null;
-  evidence?: (Partial<Evidence> & { url: string; quote: string })[];
-  independentSources?: number;
-  steps?: Result["steps"];
-  photoCheck?: PhotoCheck | null;
-};
-
-/** A stance we don't know is the honest answer for older Evidence: it's shown, just not on a side. */
-type ShownEvidence = Omit<Evidence, "stance"> & { stance: Evidence["stance"] | null };
-
-function hostnameOf(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
-}
-
-function shownEvidence(stored: StoredResult["evidence"]): ShownEvidence[] {
-  return (stored ?? []).map((item, i) => {
-    const hostname = hostnameOf(item.url);
-    return {
-      id: item.id ?? `E${i + 1}`,
-      url: item.url,
-      site: item.site ?? hostname.replace(/^www\./, ""),
-      tier: item.tier ?? tierOf(hostname),
-      date: item.date ?? null,
-      quote: item.quote,
-      quoteVerified: item.quoteVerified !== false,
-      stance: item.stance === "supports" || item.stance === "contradicts" ? item.stance : null,
-      origin: item.origin ?? null,
-      factCheck: item.factCheck ?? isFactChecker(hostname),
-    };
-  });
 }
 
 const TAG_TEXT: Record<ReasoningStep["tag"], string> = {
@@ -123,17 +92,23 @@ function PhotoCheckCard({ photo }: { photo: PhotoCheck }) {
   );
 }
 
-/** Which model decided, in words; a null model means code decided (no Independent source either way). */
-function decidedBy(model: string | null, verdict: NonNullable<StoredResult["verdict"]>): string {
+const TRIGGER_TEXT: Record<HardClaimTrigger, string> = {
+  luna_disagreed: "the two quick verdicts disagreed",
+  unsure: "a quick verdict wasn't sure enough",
+  sources_disagree: "Independent sources disagree",
+};
+
+/** Which model decided and, for a Hard claim, the trigger that fired, in words. */
+function decidedBy({ model, trigger, label }: Verdict): string {
   if (model === null) return "Decided by rule: no Independent source either way.";
-  if (!verdict.escalated) return `Decided by ${model}.`;
-  const why = "the quick verdicts disagreed or weren't sure, or Independent sources disagreed";
-  return verdict.label === "unconfirmed"
+  if (trigger === null) return `Decided by ${model}.`;
+  const why = TRIGGER_TEXT[trigger];
+  return label === "unconfirmed"
     ? `A hard claim (${why}), and ${model}, the stronger model, wasn't sure either, so it isn't confirmed yet.`
     : `Decided by ${model}, the stronger model: ${why}.`;
 }
 
-function EvidenceColumn({ title, items }: { title: string; items: ShownEvidence[] }) {
+function EvidenceColumn({ title, items }: { title: string; items: Evidence[] }) {
   return (
     <section className="flex flex-col gap-3">
       <h3 className="text-sm font-medium text-muted-foreground">
@@ -179,7 +154,7 @@ function EvidenceColumn({ title, items }: { title: string; items: ShownEvidence[
 
 export default async function ProofPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const result: StoredResult | null = await getResult(id);
+  const result = await getResult(id);
 
   if (!result) {
     return (
@@ -191,11 +166,8 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  // Results saved before agent steps existed (issue #3) have none.
-  const steps = result.steps ?? [];
-  const evidence = shownEvidence(result.evidence);
-  const unsorted = evidence.filter((e) => e.stance === null);
-  const { verdict, mainClaim, photoCheck } = result;
+  const { verdict, mainClaim, photoCheck, evidence, steps } = result;
+  const sources = independentSources(evidence);
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-16">
@@ -225,13 +197,10 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
 
           <p className="text-lg text-foreground">{verdict.oneLine}</p>
 
-          {/* Results saved before issue #8 have no Confidence. */}
-          {verdict.confidence && (
-            <p className="text-sm text-foreground">
-              <span className="font-medium">{CONFIDENCE_TEXT[verdict.confidence.level]} confidence</span>
-              <span className="text-muted-foreground"> · {verdict.confidence.reason}</span>
-            </p>
-          )}
+          <p className="text-sm text-foreground">
+            <span className="font-medium">{CONFIDENCE_TEXT[verdict.confidence.level]} confidence</span>
+            <span className="text-muted-foreground"> · {verdict.confidence.reason}</span>
+          </p>
         </>
       )}
 
@@ -249,8 +218,7 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
         </p>
       )}
 
-      {/* Results saved before issue #7 have no reasoning, and their `model` wasn't the deciding one. */}
-      {verdict?.reasoning && (
+      {verdict && (
         <section className="flex flex-col gap-3">
           <h2 className="text-sm font-medium text-muted-foreground">Why</h2>
           {verdict.reasoning.length > 0 && (
@@ -279,30 +247,25 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
               ))}
             </ol>
           )}
-          {verdict.whatWouldChange && (
-            <p className="text-sm text-foreground">
-              <span className="font-medium">What would change this: </span>
-              {verdict.whatWouldChange}
-            </p>
-          )}
-          <p className="text-xs text-muted-foreground">{decidedBy(result.model, verdict)}</p>
+          <p className="text-sm text-foreground">
+            <span className="font-medium">What would change this: </span>
+            {verdict.whatWouldChange}
+          </p>
+          <p className="text-xs text-muted-foreground">{decidedBy(verdict)}</p>
         </section>
       )}
 
       {verdict && (
         <section className="flex flex-col gap-3">
           <h2 className="text-sm font-medium text-muted-foreground">Evidence</h2>
-          {result.independentSources !== undefined && (
-            <p className="text-sm text-foreground">
-              {result.independentSources === 1 ? "1 Independent source" : `${result.independentSources} Independent sources`}
-              <span className="text-muted-foreground"> (sites repeating one report count once)</span>
-            </p>
-          )}
+          <p className="text-sm text-foreground">
+            {sources === 1 ? "1 Independent source" : `${sources} Independent sources`}
+            <span className="text-muted-foreground"> (sites repeating one report count once)</span>
+          </p>
           <div className="grid gap-6 sm:grid-cols-2">
             <EvidenceColumn title="For the claim" items={evidence.filter((e) => e.stance === "supports")} />
             <EvidenceColumn title="Against the claim" items={evidence.filter((e) => e.stance === "contradicts")} />
           </div>
-          {unsorted.length > 0 && <EvidenceColumn title="Other evidence" items={unsorted} />}
         </section>
       )}
 
