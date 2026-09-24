@@ -191,14 +191,14 @@ export async function* agentLoop(
 
     if (turn.calls.length === 0) return { candidates: turn.evidence ?? [], steps: [...steps.values()], pages };
 
-    // Every call needs an output, even ones we don't run, or the next turn is rejected.
-    const outputs: ResponseInputItem[] = [];
+    // Every call needs an output, even ones we don't run, or the next turn is rejected. The page reads of
+    // one turn start together (live, each is seconds) and finish in call order; none of them ever rejects.
+    const reads: Promise<{ callId: string; output: unknown; finished?: CheckEvent }>[] = [];
     for (const call of turn.calls) {
-      let output: unknown;
       if (call.name !== "read_page") {
-        output = { error: `Unknown tool ${call.name}` };
+        reads.push(Promise.resolve({ callId: call.callId, output: { error: `Unknown tool ${call.name}` } }));
       } else if (outOfBudget()) {
-        output = { error: "Out of steps. Answer with the Evidence you have." };
+        reads.push(Promise.resolve({ callId: call.callId, output: { error: "Out of steps. Answer with the Evidence you have." } }));
       } else {
         let url = "";
         try {
@@ -207,18 +207,28 @@ export async function* agentLoop(
         const id = `s${steps.size + 1}`;
         const site = siteName(url);
         yield step(id, { tool: "read_page", line: `Reading ${site}…`, status: "running" });
-        try {
-          const page = await readPage(world, url);
-          pages.set(url, page);
-          output = { ...page, text: page.text.slice(0, PAGE_TEXT_CHARS) };
-          yield step(id, { tool: "read_page", line: `Read ${site}${dateNote(page)}`, status: "done" });
-        } catch (error) {
-          pages.set(url, failedRead(error));
-          output = { error: `Couldn't read this page: ${error instanceof Error ? error.message : String(error)}` };
-          yield step(id, { tool: "read_page", line: `Couldn't read ${site}`, status: "failed" });
-        }
+        reads.push(
+          readPage(world, url).then(
+            (page) => {
+              pages.set(url, page);
+              const finished = step(id, { tool: "read_page", line: `Read ${site}${dateNote(page)}`, status: "done" });
+              return { callId: call.callId, output: { ...page, text: page.text.slice(0, PAGE_TEXT_CHARS) }, finished };
+            },
+            (error) => {
+              pages.set(url, failedRead(error));
+              const finished = step(id, { tool: "read_page", line: `Couldn't read ${site}`, status: "failed" });
+              const reason = error instanceof Error ? error.message : String(error);
+              return { callId: call.callId, output: { error: `Couldn't read this page: ${reason}` }, finished };
+            },
+          ),
+        );
       }
-      outputs.push({ type: "function_call_output", call_id: call.callId, output: JSON.stringify(output) });
+    }
+    const outputs: ResponseInputItem[] = [];
+    for (const read of reads) {
+      const { callId, output, finished } = await read;
+      if (finished) yield finished;
+      outputs.push({ type: "function_call_output", call_id: callId, output: JSON.stringify(output) });
     }
     previousResponseId = turn.responseId;
     input = outputs;

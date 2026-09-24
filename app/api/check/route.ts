@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 import { DEMO_PASS_COOKIE, isDemoPass } from "@/lib/demo-pass.ts";
+import { outsideWorldMode } from "@/lib/engine/boundary.ts";
 import { check } from "@/lib/engine/check.ts";
+import { paced } from "@/lib/engine/demo-pace.ts";
 import { ExifSchema, MAX_IMAGE_BYTES, PHOTO_TOO_BIG, type CheckEvent, type MessageImage } from "@/lib/engine/schemas.ts";
 
 /** The photo, up to 2,000 characters of text (4 bytes each at most) and the form's own overhead.
@@ -39,7 +41,9 @@ export async function POST(request: Request) {
   const recheck = form?.get("recheck") === "1";
   const date = form?.get("claimDate");
   const claimDate = typeof date === "string" && date ? date : undefined;
-  return sse(check(message, { image, ip: clientIp(request), demoPass, recheck, claimDate }));
+  const events = check(message, { image, ip: clientIp(request), demoPass, recheck, claimDate });
+  // Replay answers instantly; the demo shows it over a few seconds, like the agent doing the work.
+  return sse(outsideWorldMode() === "replay" ? paced(events) : events);
 }
 
 /** The caller's address as Vercel reports it. ponytail: trusts these headers, which Vercel sets
