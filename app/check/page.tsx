@@ -2,7 +2,6 @@
 
 import { SiteBar } from "@/components/site-bar";
 import { StepStatusIcon } from "@/components/step-status-icon";
-import { Button } from "@/components/ui/button";
 import { runCheck } from "@/lib/check-stream.ts";
 import {
   IMAGE_TYPES,
@@ -13,7 +12,7 @@ import {
   type AgentStep,
   type Exif,
 } from "@/lib/engine/schemas.ts";
-import { ArrowRightIcon, ChevronDownIcon, CircleAlertIcon, ImagePlusIcon, LoaderCircleIcon } from "lucide-react";
+import { ArrowUpIcon, CircleAlertIcon, ImageIcon, LoaderCircleIcon, PlusIcon, XIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
@@ -139,90 +138,12 @@ export default function Home() {
   return (
     <>
       <SiteBar />
-      <main className="mx-auto grid w-full max-w-6xl flex-1 gap-10 px-5 pt-6 pb-20 sm:px-10 sm:pt-12 lg:pt-24 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-16">
-        <div className="flex flex-col gap-5 lg:pt-4">
-          <h1 className="text-[clamp(2.75rem,6vw,4.5rem)] leading-[1.02] font-bold tracking-[-0.04em] text-balance text-foreground">
-            Is this forward true?
+      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 sm:px-6">
+        {/* The empty chat: one quiet line, centred; the live steps and any error follow it, like replies. */}
+        <div className="flex flex-1 flex-col justify-center gap-8 py-10">
+          <h1 className="text-center text-2xl font-semibold tracking-[-0.02em] text-balance text-foreground/80">
+            Paste a forward. We&apos;ll check if it&apos;s true.
           </h1>
-          <p className="max-w-md text-xl leading-relaxed text-muted-foreground sm:text-2xl">
-            Paste a forwarded message or add its photo, and we&apos;ll check it, with proof.
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-5">
-          <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            maxLength={MAX_MESSAGE_LENGTH}
-            disabled={running}
-            placeholder="Paste the forward here…"
-            rows={7}
-            aria-label="The forward to check"
-            className="min-h-56 w-full resize-none rounded-3xl border-[1.5px] border-input bg-background p-6 text-xl leading-relaxed text-foreground shadow-[0_1px_2px_rgba(16,23,20,0.04)] transition-colors outline-none placeholder:text-muted-foreground hover:border-foreground/30 focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/15 disabled:bg-muted/60"
-          />
-
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex h-12 cursor-pointer items-center gap-2 rounded-full border-[1.5px] border-input bg-background px-5 text-base font-semibold text-foreground transition-colors hover:border-foreground/30 hover:bg-muted has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 has-[:focus-visible]:border-primary has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-primary/15">
-              <ImagePlusIcon aria-hidden className="size-5 text-primary" />
-              {photo ? "Change photo" : "Add photo / screenshot"}
-              <input
-                type="file"
-                accept={IMAGE_TYPES.join(",")}
-                disabled={running}
-                onChange={(e) => {
-                  onPhoto(e.target.files?.[0]);
-                  e.target.value = ""; // so picking the same file again after Remove still fires
-                }}
-                className="sr-only"
-              />
-            </label>
-            {photo && (
-              <span className="flex h-12 min-w-0 items-center gap-3 rounded-full bg-muted pr-2 pl-5 text-base text-foreground">
-                <span className="truncate">{photo.name}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    pick.current++;
-                    setPhoto(null);
-                  }}
-                  disabled={running}
-                  className="h-9 shrink-0 rounded-full px-3 text-sm font-semibold text-primary underline underline-offset-2 hover:bg-background disabled:opacity-50"
-                >
-                  Remove
-                </button>
-              </span>
-            )}
-          </div>
-
-          <details className="group text-lg text-foreground">
-            <summary className="flex w-fit cursor-pointer list-none items-center gap-2 rounded-full py-1 font-semibold text-primary outline-none focus-visible:ring-4 focus-visible:ring-primary/15 [&::-webkit-details-marker]:hidden">
-              More options
-              <ChevronDownIcon aria-hidden className="size-5 transition-transform group-open:rotate-180" />
-            </summary>
-            <label className="mt-3 flex flex-col gap-2">
-              <span>When did you get this?</span>
-              <span className="text-base text-muted-foreground">We check whether it was true on that day. Leave it as today unless it came a while ago.</span>
-              <input
-                type="date"
-                value={claimDate}
-                max={today}
-                onChange={(e) => setClaimDate(e.target.value)}
-                disabled={running}
-                suppressHydrationWarning
-                className="h-12 w-fit rounded-2xl border-[1.5px] border-input bg-background px-4 text-lg text-foreground outline-none hover:border-foreground/30 focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/15 disabled:bg-muted/60"
-              />
-            </label>
-          </details>
-
-          <Button
-            onClick={onCheck}
-            disabled={!canCheck}
-            className="h-16 w-full rounded-2xl text-xl font-semibold shadow-[0_8px_20px_-10px_rgba(30,91,69,0.55)] hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none [&_svg:not([class*='size-'])]:size-5"
-          >
-            {running ? <LoaderCircleIcon aria-hidden className="animate-spin" /> : null}
-            {running ? "Checking…" : "Check if it's true"}
-            {running ? null : <ArrowRightIcon aria-hidden />}
-          </Button>
 
           {error && (
             <p role="alert" className="flex items-start gap-2 text-lg text-destructive">
@@ -243,6 +164,99 @@ export default function Home() {
               ))}
             </ol>
           )}
+        </div>
+
+        {/* Pinned to the bottom like a chat box; the background hides whatever scrolls under it. */}
+        <div className="sticky bottom-0 bg-background pt-2 pb-4 sm:pb-6">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (canCheck) onCheck();
+              }}
+              className="flex flex-col gap-1 rounded-[28px] border border-border bg-background px-3 pt-3 pb-2.5 shadow-[0_2px_12px_-4px_rgba(16,23,20,0.08)] transition-[border-color,box-shadow] has-[textarea:focus-visible]:border-primary/40 has-[textarea:focus-visible]:shadow-[0_4px_20px_-6px_rgba(30,91,69,0.22)]"
+            >
+              {photo && (
+                <span className="mx-2 mt-1 flex h-10 w-fit max-w-full min-w-0 items-center gap-2 rounded-xl bg-muted pr-1 pl-3 text-sm text-foreground">
+                  <ImageIcon aria-hidden className="size-4 shrink-0 text-primary" />
+                  <span className="truncate">{photo.name}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${photo.name}`}
+                    onClick={() => {
+                      pick.current++;
+                      setPhoto(null);
+                    }}
+                    disabled={running}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-50"
+                  >
+                    <XIcon aria-hidden className="size-4" />
+                  </button>
+                </span>
+              )}
+
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter sends, Shift+Enter is a new line, like a chat box.
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    e.currentTarget.form?.requestSubmit();
+                  }
+                }}
+                maxLength={MAX_MESSAGE_LENGTH}
+                disabled={running}
+                placeholder="Paste the forward here…"
+                rows={1}
+                aria-label="The forward to check"
+                className="field-sizing-content max-h-60 min-h-10 w-full resize-none bg-transparent px-2 pt-1 text-lg leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
+              />
+
+              <div className="flex items-center gap-2">
+                <label
+                  title={photo ? "Change photo" : "Add photo / screenshot"}
+                  className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-foreground/70 transition-colors hover:text-foreground hover:bg-muted has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-primary/15"
+                >
+                  <PlusIcon aria-hidden className="size-5" />
+                  <input
+                    type="file"
+                    accept={IMAGE_TYPES.join(",")}
+                    disabled={running}
+                    aria-label={photo ? "Change photo" : "Add photo / screenshot"}
+                    onChange={(e) => {
+                      onPhoto(e.target.files?.[0]);
+                      e.target.value = ""; // so picking the same file again after Remove still fires
+                    }}
+                    className="sr-only"
+                  />
+                </label>
+
+                <label
+                  title="When did you get this? We check whether it was true on that day."
+                  className="flex h-9 items-center rounded-full px-2.5 text-sm font-medium text-foreground/70 transition-colors hover:bg-muted has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-primary/15"
+                >
+                  <span className="sr-only">When did you get this?</span>
+                  <input
+                    type="date"
+                    value={claimDate}
+                    max={today}
+                    onChange={(e) => setClaimDate(e.target.value)}
+                    disabled={running}
+                    suppressHydrationWarning
+                    className="bg-transparent outline-none"
+                  />
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={!canCheck}
+                  aria-label="Check if it's true"
+                  className="ml-auto flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:ring-4 focus-visible:ring-primary/25 focus-visible:outline-none disabled:bg-primary/20 disabled:text-white"
+                >
+                  {running ? <LoaderCircleIcon aria-hidden className="size-5 animate-spin" /> : <ArrowUpIcon aria-hidden className="size-5" />}
+                </button>
+              </div>
+            </form>
         </div>
       </main>
     </>

@@ -21,7 +21,7 @@ An autonomous agent whose trust work is done by code, not the model: quotes are 
 
 ## Operating Context
 
-- Two surfaces: the input page (`/`: one box, one button, optional photo, live step list streamed as the agent works) and the proof page (`/check/<id>`: public, no login).
+- Three surfaces: the landing page (`/`), the input page (`/check`: one box, optional photo, live step list streamed as the agent works) and the proof page (`/check/<id>`: public, no login).
 - The demo runs in replay mode on fixed Scenarios (see README "Demo Messages in replay"); the live steps appear quickly, the proof page is the moment judges study.
 - Results live 30 days; a proof page shows "Checked X ago" and a Re-check button (not for photo Checks).
 
@@ -38,7 +38,7 @@ An autonomous agent whose trust work is done by code, not the model: quotes are 
 ## Brand Commitments
 
 - Name: TruthAgent.
-- The app must match the pitch deck's identity (Paper file "TruthAgent — Pitch deck"): white ground, ink `#101714`, evergreen `#1E5B45` as the single accent, mist `#EEF3F0` surfaces, slate `#5E6A65` secondary text, False red `#B8342A` and amber `#A86F17` reserved for Verdict states, Geist and Geist Mono. Confirmed by the user as binding.
+- The app must match the pitch deck's identity (Paper file "TruthAgent — Pitch deck"): white ground, ink `#101714`, evergreen `#1E5B45` as the single accent, mist `#EEF3F0` surfaces, slate `#5E6A65` secondary text, False red `#B8342A` and amber `#A86F17` reserved for Verdict states, Geist throughout (no Geist Mono; numbers use tabular figures). Confirmed by the user as binding.
 - Voice: plain, calm, exact. Never a bare "FAKE"; "earliest copy we found", not "the original".
 
 ## Evidence on Hand

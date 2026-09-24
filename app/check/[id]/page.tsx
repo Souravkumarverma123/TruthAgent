@@ -127,7 +127,7 @@ function PhotoCheckPanel({ photo }: { photo: PhotoCheck }) {
                 <a href={photo.earliest.url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary underline">
                   {photo.earliest.site}
                 </a>
-                , <span className="font-mono tracking-[-0.02em] tabular-nums">{DAY_FORMAT.format(new Date(photo.earliest.date))}</span>
+                , <span className="tabular-nums">{DAY_FORMAT.format(new Date(photo.earliest.date))}</span>
               </>
             ) : (
               "none with a date"
@@ -161,7 +161,7 @@ function EvidenceRow({ item }: { item: Evidence }) {
   return (
     <li id={item.id} className="evidence-row flex flex-col gap-3 py-5">
       <p className="flex gap-3 text-lg leading-relaxed text-foreground">
-        <span className="mt-0.5 w-9 shrink-0 font-mono text-base font-medium text-muted-foreground">{item.id}</span>
+        <span className="mt-0.5 w-9 shrink-0 text-base font-medium text-muted-foreground">{item.id}</span>
         <span>&ldquo;{item.quote}&rdquo;</span>
       </p>
       <div className="flex flex-col gap-1.5 pl-12">
@@ -176,7 +176,7 @@ function EvidenceRow({ item }: { item: Evidence }) {
           <ArrowUpRightIcon aria-hidden className="size-4" />
         </a>
         <p className="text-base text-muted-foreground">
-          {TIER_TEXT[item.tier]} · <span className="font-mono tracking-[-0.02em] tabular-nums">{item.date ? DAY_FORMAT.format(new Date(item.date)) : "No date found"}</span>
+          {TIER_TEXT[item.tier]} · <span className="tabular-nums">{item.date ? DAY_FORMAT.format(new Date(item.date)) : "No date found"}</span>
         </p>
         <p className="text-base text-muted-foreground">Origin: {item.origin ?? "not identified"}</p>
         {item.factCheck && <p className="text-base text-muted-foreground">Someone else&apos;s fact-check: a lead, not an Independent source</p>}
@@ -192,9 +192,9 @@ function LedgerColumn({ title, items, sources, backs }: { title: string; items: 
       <div className={`flex flex-col gap-1 border-b-2 pb-3 ${backs ?? "border-foreground"}`}>
         <h3 className="flex items-baseline justify-between gap-4 text-xl font-bold tracking-[-0.015em] text-foreground">
           {title}
-          <span className="font-mono text-base font-medium text-muted-foreground">({items.length})</span>
+          <span className="text-base font-medium text-muted-foreground">({items.length})</span>
         </h3>
-        <p className="font-mono text-base tracking-[-0.02em] text-muted-foreground">
+        <p className="text-base text-muted-foreground">
           {sources === 1 ? "1 Independent source" : `${sources} Independent sources`}
         </p>
       </div>
@@ -280,7 +280,7 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
                 {result.claimDate && (
                   <p className="text-lg text-foreground">
                     Judged as of{" "}
-                    <span className="font-mono font-medium tracking-[-0.02em] tabular-nums">
+                    <span className="font-medium tabular-nums">
                       {DAY_FORMAT.format(new Date(result.claimDate))}
                     </span>
                   </p>
@@ -369,7 +369,7 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
                               {step.evidenceIds.map((evidenceId, j) => (
                                 <span key={evidenceId}>
                                   {j > 0 && ", "}
-                                  <a href={`#${evidenceId}`} className="font-mono text-base font-medium text-primary underline">
+                                  <a href={`#${evidenceId}`} className="text-base font-medium text-primary underline">
                                     {evidenceId}
                                   </a>
                                 </span>
