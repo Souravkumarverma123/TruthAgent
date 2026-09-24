@@ -228,7 +228,7 @@ link, so it can be shared back into the group.
 | AI | `openai` SDK, **Responses API** (vision, hosted web search, function tools and structured output in one API) |
 | Schemas | Zod, used for the model's structured output |
 | Progress | Server-sent events over a POST `fetch` stream |
-| Storage | Upstash Redis (Results, and later cache, lock and rate limits) |
+| Storage | Upstash Redis (Results and rate limits; later cache and lock) |
 | Photos | SerpApi Google Lens (reverse image search), `exifr` (EXIF), `sharp` (re-encoding) |
 | Deploy | Vercel |
 
@@ -274,8 +274,9 @@ cp .env.example .env.local
 |---|---|---|
 | `OPENAI_API_KEY` | Every model call and web search | Required for live mode |
 | `GOOGLE_API_KEY` | Google Fact Check Tools | Free, works without billing |
-| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Saving Results | Upstash free tier |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Saving Results, rate limits | Upstash free tier |
 | `SERPAPI_API_KEY` | Reverse image search for the Photo check | Free plan, 250 searches a month; one per photo |
+| `DEMO_PASS_SECRET` | The team's demo pass | Open `/api/demo-pass?secret=<it>` once to skip the limits of 5 new Checks per person an hour and 30 a day |
 | `OUTSIDE_WORLD_MODE` | `live` to make real calls | Anything else, or unset, means replay |
 
 Keys stay on the server. Never prefix them with `NEXT_PUBLIC_`, and never commit them;
@@ -356,6 +357,7 @@ with fact-checking sites blocked, so the agent can't just read the answer.
 app/
   page.tsx                  Input page: the box, the button, the live step list
   api/check/route.ts        Check endpoint: runs check() and streams step events as SSE
+  api/demo-pass/route.ts    Sets the demo-pass cookie from the team's secret
   check/[id]/page.tsx       Proof page: renders a saved Result
 lib/engine/                 The Engine: the checking pipeline, no UI
   check.ts                  Entry point check(): Understand → agent → Evidence → Verdict → save
@@ -369,6 +371,7 @@ lib/engine/                 The Engine: the checking pipeline, no UI
   boundary.ts               The outside world: live and replay adapters
   scenarios.ts              Replay Scenarios (test and demo data)
   check.test.ts             The tests, through check() only
+lib/demo-pass.ts            Checks the demo-pass cookie against DEMO_PASS_SECRET
 components/                 Step status icon, shadcn/ui button
 instrumentation.ts          Registers the demo Scenarios with the dev server at startup
 docs/                       Architecture, requirements, research, ADRs
@@ -389,7 +392,7 @@ The full spec is [#1](https://github.com/Souravkumarverma123/TruthAgent/issues/1
 | ✅ | #8 Confidence by code and the Not confirmed yet rule | Done |
 | ✅ | #25 Replay by Scenario | Done |
 | ✅ | #11 Photo check: upload, reverse image search, EXIF (P0) | Done |
-| ⏳ | #13 Rate limits and demo pass (P0) | Open |
+| ✅ | #13 Rate limits and demo pass (P0) | Done |
 | ⏳ | #6 Already fact-checked box, with same-event and outdated guards (P1) | Open |
 | ⏳ | #9 Claim date and Outdated Verdicts (P1) | Open |
 | ⏳ | #10 Several Claims and Opinions in one forward (P1) | Open |

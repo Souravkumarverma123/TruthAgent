@@ -34,6 +34,10 @@ export interface CheckOptions {
   world?: World;
   /** The Message's photo or screenshot, if any. */
   image?: MessageImage;
+  /** Who is asking, for the per-person limit on new Checks. */
+  ip?: string;
+  /** The team's demo pass: no limit on new Checks. The endpoint checks the secret; the Engine never sees it. */
+  demoPass?: boolean;
 }
 
 /** The file type, from the file's own first bytes rather than what the upload claims. */
@@ -66,6 +70,22 @@ async function liveUnderstand(client: OpenAI, message: string, image: MessageIma
   });
   if (!response.output_parsed) throw new Error("Understand step returned no output");
   return response.output_parsed;
+}
+
+const HOUR = 60 * 60;
+const IP_LIMIT = 5;
+const DAY_LIMIT = 30;
+
+/** Why a new Check can't run, or null if it can. The person's own hour is counted first, so Checks
+ * turned away by it never use up the site's day (docs/architecture.md §7). */
+async function limitReached(world: World, ip: string): Promise<string | null> {
+  if ((await world.count(`checks:ip:${ip}`, HOUR)) > IP_LIMIT) {
+    return `You've run ${IP_LIMIT} new checks this hour, the most one person can. Please try again later.`;
+  }
+  if ((await world.count("checks:day", 24 * HOUR)) > DAY_LIMIT) {
+    return "We're busy: today's new checks are used up. Try a claim we've already checked, or come back tomorrow.";
+  }
+  return null;
 }
 
 /** No Origin for or against the Claim means nothing independent backs it, whether the Evidence is
@@ -218,6 +238,13 @@ export async function* check(message: string, options: CheckOptions = {}): Async
   const world = options.world ?? defaultWorld(message);
 
   try {
+    // Every new Check counts, from its first paid call. ponytail: #12's cache hits must return before this line.
+    const limit = options.demoPass ? null : await limitReached(world, options.ip ?? "unknown");
+    if (limit) {
+      yield { type: "error", message: limit };
+      return;
+    }
+
     const understood = await world.openai({ step: "understand" }, (client) => liveUnderstand(client, message, image));
     const claim = understood.main_claim;
     const mainClaim = claim && { original: claim.original, canonicalEn: claim.canonical_en };
