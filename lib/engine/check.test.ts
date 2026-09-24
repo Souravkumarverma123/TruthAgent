@@ -442,3 +442,49 @@ test("replay: copies of a photo with none dated before the Claim date don't make
 
   assert.equal((await resultOf(events)).photoCheck?.real, "unknown");
 });
+
+/** Several Checks in one world, so they share its rate-limit counters; the last event of each. */
+async function lastEvents(world: World, runs: CheckOptions[]): Promise<CheckEvent[]> {
+  const last: CheckEvent[] = [];
+  for (const options of runs) {
+    let event: CheckEvent | undefined;
+    for await (event of check("Some forward", { ...options, world }));
+    last.push(event!);
+  }
+  return last;
+}
+
+const errorText = (event: CheckEvent) => (event.type === "error" ? event.message : "");
+
+test("replay: the 6th new Check from one IP within an hour gets a friendly limit-reached error", async () => {
+  const last = await lastEvents(replayWorld(scenarios.SOME_FORWARD), Array(6).fill({ ip: "1.2.3.4" }));
+
+  assert.deepEqual(last.slice(0, 5).map((e) => e.type), Array(5).fill("done"));
+  assert.match(errorText(last[5]), /5 new checks this hour/);
+});
+
+test("replay: the 31st new Check of the day site-wide gets a friendly busy error", async () => {
+  const ips = Array.from({ length: 31 }, (_, i) => ({ ip: `10.0.0.${i}` }));
+  const last = await lastEvents(replayWorld(scenarios.SOME_FORWARD), ips);
+
+  assert.ok(last.slice(0, 30).every((e) => e.type === "done"));
+  assert.match(errorText(last[30]), /new checks are used up/);
+});
+
+test("replay: Checks turned away by one IP's limit don't use up the site-wide day", async () => {
+  const world = replayWorld(scenarios.SOME_FORWARD);
+  await lastEvents(world, Array(40).fill({ ip: "1.2.3.4" }));
+  const last = await lastEvents(world, Array.from({ length: 5 }, (_, i) => ({ ip: `10.0.0.${i}` })));
+
+  assert.ok(last.every((e) => e.type === "done"));
+});
+
+test("replay: with the demo pass, neither limit applies", async () => {
+  const world = replayWorld(scenarios.SOME_FORWARD);
+  // 6 IPs × 5 Checks: the day's 30 are used up, and so is IP "10.0.0.0"'s hour.
+  await lastEvents(world, Array.from({ length: 30 }, (_, i) => ({ ip: `10.0.0.${i % 6}` })));
+  const [without, withPass] = await lastEvents(world, [{ ip: "10.0.0.0" }, { ip: "10.0.0.0", demoPass: true }]);
+
+  assert.equal(without.type, "error");
+  assert.equal(withPass.type, "done");
+});

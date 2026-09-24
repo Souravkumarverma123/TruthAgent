@@ -1,3 +1,5 @@
+import { cookies } from "next/headers";
+import { DEMO_PASS_COOKIE, isDemoPass } from "@/lib/demo-pass.ts";
 import { check } from "@/lib/engine/check.ts";
 import { ExifSchema, MAX_IMAGE_BYTES, PHOTO_TOO_BIG, type CheckEvent, type MessageImage } from "@/lib/engine/schemas.ts";
 
@@ -33,7 +35,14 @@ export async function POST(request: Request) {
   // check() rejects a wrong type or an oversized photo with a friendly message.
   const image: MessageImage | undefined =
     file instanceof File ? { bytes: new Uint8Array(await file.arrayBuffer()), exif: exifOf(form!.get("exif")) } : undefined;
-  return sse(check(message, { image }));
+  const demoPass = isDemoPass((await cookies()).get(DEMO_PASS_COOKIE)?.value);
+  return sse(check(message, { image, ip: clientIp(request), demoPass }));
+}
+
+/** The caller's address as Vercel reports it. ponytail: trusts these headers, which Vercel sets
+ * itself; behind another host a client could forge them to dodge the per-person limit. */
+function clientIp(request: Request): string | undefined {
+  return request.headers.get("x-real-ip") ?? request.headers.get("x-forwarded-for")?.split(",")[0].trim();
 }
 
 function sse(events: AsyncIterable<CheckEvent>): Response {

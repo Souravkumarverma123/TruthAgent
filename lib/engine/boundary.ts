@@ -41,6 +41,8 @@ export interface World {
   reverseImage(image: Uint8Array, signal: AbortSignal): Promise<ImageMatch[]>;
   saveResult(result: Result): Promise<void>;
   getResult(id: string): Promise<Result | null>;
+  /** Adds one to a counter and returns its new value; the counter starts over `windowSeconds` after its first count. */
+  count(key: string, windowSeconds: number): Promise<number>;
 }
 
 /**
@@ -105,6 +107,9 @@ function memoryResults(): ResultStore {
 }
 
 export function replayWorld(scenario: Scenario, results: ResultStore = memoryResults()): World {
+  // ponytail: counters never expire and live as long as this world: a test's Checks share them,
+  // while the dev server's per-request worlds never reach a limit. Fine for $0 replay.
+  const counters = new Map<string, number>();
   return {
     async openai<A extends Ask>(ask: A) {
       const { answer, what } = replayAnswer(scenario, ask);
@@ -120,6 +125,10 @@ export function replayWorld(scenario: Scenario, results: ResultStore = memoryRes
     async reverseImage() {
       if (scenario.reverseImage === undefined) throw new ReplayGap("reverse image search");
       return scenario.reverseImage;
+    },
+    async count(key) {
+      counters.set(key, (counters.get(key) ?? 0) + 1);
+      return counters.get(key)!;
     },
     ...results,
   };
@@ -363,6 +372,11 @@ export const liveWorld: World = {
   openai: (_ask, live) => live(client()),
   fetchText: fetchLive,
   reverseImage: reverseImageLive,
+  async count(key, windowSeconds) {
+    // One round trip; NX sets the expiry on the first count only, so the window doesn't slide.
+    const [value] = await redis().multi().incr(key).expire(key, windowSeconds, "NX").exec<[number, number]>();
+    return value;
+  },
   ...redisResults,
 };
 

@@ -201,10 +201,13 @@ Demo claims get pre-warmed. Semantic (embedding) cache: only if the canonical-cl
 too often in testing.
 
 ## 7. Protecting the credit
-- Rate limit per IP: Redis `INCR ip:{ip}` + `EXPIRE 3600`, 5 new checks/hour. A public URL
+- Rate limit per IP: Redis `INCR checks:ip:{ip}` + `EXPIRE 3600 NX`, 5 new checks/hour. A public URL
   without this can drain the OpenAI balance.
-- **Global cap:** max 30 new (uncached) checks per day, Redis counter. Past it: "Busy, try a
-  claim we've already checked". Protects the $4.
+- **Global cap:** max 30 new (uncached) checks per day, Redis counter `checks:day` (24h from its first Check). Past it: "Busy, try a
+  claim we've already checked". Protects the $4. A Check turned away by its IP's limit never
+  counts toward the day.
+- **Demo pass:** `/api/demo-pass?secret=…` sets an httpOnly cookie; while it matches the server-only
+  `DEMO_PASS_SECRET`, neither limit applies.
 - Max input: 2,000 characters, 1 image, 5 MB.
 - OpenAI dashboard: hard spend limit.
 - **Dev replay cache:** in development, save every OpenAI/Google response to a local file keyed
