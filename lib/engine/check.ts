@@ -78,7 +78,7 @@ const DAY_LIMIT = 30;
 
 /** Why a new Check can't run, or null if it can. The person's own hour is counted first, so Checks
  * turned away by it never use up the site's day (docs/architecture.md §7). */
-async function limitReached(world: World, ip: string): Promise<string | null> {
+async function limitMessage(world: World, ip: string): Promise<string | null> {
   if ((await world.count(`checks:ip:${ip}`, HOUR)) > IP_LIMIT) {
     return `You've run ${IP_LIMIT} new checks this hour, the most one person can. Please try again later.`;
   }
@@ -238,8 +238,10 @@ export async function* check(message: string, options: CheckOptions = {}): Async
   const world = options.world ?? defaultWorld(message);
 
   try {
-    // Every new Check counts, from its first paid call. ponytail: #12's cache hits must return before this line.
-    const limit = options.demoPass ? null : await limitReached(world, options.ip ?? "unknown");
+    // Every new Check counts, from its first paid call (Understand), so a public link can't run Understand
+    // unlimited. #12: an exact-cache hit returns before this line; a Claim-cache hit (known only after
+    // Understand) should give its count back. ponytail: no IP (only local runs) means one shared bucket.
+    const limit = options.demoPass ? null : await limitMessage(world, options.ip ?? "unknown");
     if (limit) {
       yield { type: "error", message: limit };
       return;
