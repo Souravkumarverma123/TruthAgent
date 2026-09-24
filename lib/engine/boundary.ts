@@ -43,6 +43,13 @@ export interface World {
   getResult(id: string): Promise<Result | null>;
   /** Adds one to a counter and returns its new value; the counter starts over `windowSeconds` after its first count. */
   count(key: string, windowSeconds: number): Promise<number>;
+  /** Takes one back off a counter. */
+  uncount(key: string): Promise<void>;
+  /** A short value (a cache pointer, a lock), or null once it has expired. */
+  getKey(key: string): Promise<string | null>;
+  /** Stores `value` for `seconds`; with `onlyIfAbsent`, only if the key is free. Returns whether it was stored. */
+  setKey(key: string, value: string, seconds: number, onlyIfAbsent?: boolean): Promise<boolean>;
+  deleteKey(key: string): Promise<void>;
 }
 
 /**
@@ -107,9 +114,10 @@ function memoryResults(): ResultStore {
 }
 
 export function replayWorld(scenario: Scenario, results: ResultStore = memoryResults()): World {
-  // ponytail: counters never expire and live as long as this world: a test's Checks share them,
-  // while the dev server's per-request worlds never reach a limit. Fine for $0 replay.
+  // ponytail: counters and keys never expire and live as long as this world: a test's Checks share them,
+  // while the dev server's per-request worlds never reach a limit or hit the cache. Fine for $0 replay.
   const counters = new Map<string, number>();
+  const keys = new Map<string, string>();
   return {
     async openai<A extends Ask>(ask: A) {
       const { answer, what } = replayAnswer(scenario, ask);
@@ -130,6 +138,16 @@ export function replayWorld(scenario: Scenario, results: ResultStore = memoryRes
       counters.set(key, (counters.get(key) ?? 0) + 1);
       return counters.get(key)!;
     },
+    async uncount(key) {
+      counters.set(key, (counters.get(key) ?? 0) - 1);
+    },
+    getKey: async (key) => keys.get(key) ?? null,
+    async setKey(key, value, _seconds, onlyIfAbsent) {
+      if (onlyIfAbsent && keys.has(key)) return false;
+      keys.set(key, value);
+      return true;
+    },
+    deleteKey: async (key) => void keys.delete(key),
     ...results,
   };
 }
@@ -377,6 +395,13 @@ export const liveWorld: World = {
     const [value] = await redis().multi().incr(key).expire(key, windowSeconds, "NX").exec<[number, number]>();
     return value;
   },
+  uncount: async (key) => void (await redis().decr(key)),
+  getKey: (key) => redis().get<string>(key),
+  async setKey(key, value, seconds, onlyIfAbsent) {
+    const options = onlyIfAbsent ? { ex: seconds, nx: true as const } : { ex: seconds };
+    return (await redis().set(key, value, options)) !== null;
+  },
+  deleteKey: async (key) => void (await redis().del(key)),
   ...redisResults,
 };
 

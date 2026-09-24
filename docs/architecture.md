@@ -190,8 +190,8 @@ Two layers of keys, both pointing to a stored result:
 **TTL of the cache pointers depends on the claim, not a flat number:**
 | Situation | TTL |
 |---|---|
-| Death/health, "Not confirmed yet", or any evidence under 7 days old | 15 min |
-| Govt rules, money, elections | 1 day |
+| Death/health, disaster/weather, "Not confirmed yet", any evidence under 7 days old, or a photo search that didn't run | 15 min |
+| Govt rules, money, elections, other | 1 day |
 | Statistics | 7 days |
 | Old image in wrong context, history, settled science | 30 days |
 

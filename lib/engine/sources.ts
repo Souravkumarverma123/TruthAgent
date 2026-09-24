@@ -1,5 +1,5 @@
 // Source knowledge: plain data, seeded from docs/research/trusted-sources.md.
-import type { ClaimType, Tier } from "./schemas.ts";
+import type { ClaimType, Result, Tier } from "./schemas.ts";
 
 /** A domain entry matches itself and its subdomains. */
 function matches(hostname: string, domains: string[]): boolean {
@@ -109,3 +109,32 @@ export const AUTHORITY_RULES: Record<ClaimType, string> = {
   image_context: "The earliest dated copy of the image and its original publisher settle where and when it was taken.",
   other: "Prefer the primary source that owns the fact. Many sites copying one report count once.",
 };
+
+const MINUTE = 60;
+const DAY = 24 * 60 * MINUTE;
+/** A developing story: the answer may change within the hour. */
+const BREAKING = 15 * MINUTE;
+
+/** How long the cache keeps answering a Claim of this type with its saved Result (docs/architecture.md §6). */
+export const CACHE_SECONDS: Record<ClaimType, number> = {
+  death_health: BREAKING,
+  disaster_weather: BREAKING,
+  govt_scheme_law: DAY,
+  money_banking: DAY,
+  election: DAY,
+  other: DAY,
+  statistics: 7 * DAY,
+  science_health: 30 * DAY,
+  image_context: 30 * DAY,
+};
+
+/** The cache lifetime for a saved Result: short while the answer may still move (Not confirmed yet, Evidence
+ * under 7 days old, a photo search that didn't run), else its Claim type's. No Claim is a photo on its own. */
+export function cacheSeconds(claimType: ClaimType | null, result: Pick<Result, "verdict" | "evidence" | "photoCheck">): number {
+  const weekAgo = new Date(Date.now() - 7 * DAY * 1000).toISOString().slice(0, 10);
+  const moving =
+    result.verdict?.label === "unconfirmed" ||
+    result.evidence.some((e) => e.date !== null && e.date >= weekAgo) ||
+    result.photoCheck?.matches === null;
+  return moving ? BREAKING : CACHE_SECONDS[claimType ?? "image_context"];
+}

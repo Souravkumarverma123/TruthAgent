@@ -6,10 +6,12 @@ import type { ResponseInputContent } from "openai/resources/responses/responses"
 import { zodTextFormat } from "openai/helpers/zod";
 import { agentLoop } from "./agent.ts";
 import { defaultWorld, ReplayGap, type World } from "./boundary.ts";
+import { cached, claimKey, claimResultOrLock, exactKey, unlock } from "./cache.ts";
 import { confidenceOf, originsBySide } from "./confidence.ts";
 import { processEvidence } from "./evidence.ts";
 import { MODELS } from "./models.ts";
 import { photoCheck } from "./photo.ts";
+import { cacheSeconds } from "./sources.ts";
 import {
   MAX_IMAGE_BYTES,
   MAX_MESSAGE_LENGTH,
@@ -38,6 +40,8 @@ export interface CheckOptions {
   ip?: string;
   /** The team's demo pass: no limit on new Checks. The endpoint checks the secret; the Engine never sees it. */
   demoPass?: boolean;
+  /** Re-check: skip both caches and run a fresh Check, whose Result the caches then give out. */
+  recheck?: boolean;
 }
 
 /** The file type, from the file's own first bytes rather than what the upload claims. */
@@ -75,16 +79,18 @@ async function liveUnderstand(client: OpenAI, message: string, image: MessageIma
 const HOUR = 60 * 60;
 const IP_LIMIT = 5;
 const DAY_LIMIT = 30;
+const ipCounter = (ip: string) => `checks:ip:${ip}`;
+const DAY_COUNTER = "checks:day";
 
 /** Why a new Check can't run, or null if it can. The person's own hour is counted first, so Checks
  * turned away by it never use up the site's day (docs/architecture.md §7). */
 async function limitMessage(world: World, ip: string): Promise<string | null> {
-  if ((await world.count(`checks:ip:${ip}`, HOUR)) > IP_LIMIT) {
+  if ((await world.count(ipCounter(ip), HOUR)) > IP_LIMIT) {
     return `You've run ${IP_LIMIT} new checks this hour, the most one person can. Please try again later.`;
   }
-  if ((await world.count("checks:day", 24 * HOUR)) > DAY_LIMIT) {
-    // #12: once cache hits skip this limit, point people to "a claim we've already checked" too.
-    return "We're busy: today's new checks are used up. Links to checks we've already done still open. Please come back tomorrow.";
+  if ((await world.count(DAY_COUNTER, 24 * HOUR)) > DAY_LIMIT) {
+    // Only an exact repeat skips the limit: a reworded Claim needs Understand, which the limit guards.
+    return "We're busy: today's new checks are used up. A message we've already checked still gets its answer, and links to finished checks still open. Please come back tomorrow.";
   }
   return null;
 }
@@ -237,12 +243,25 @@ export async function* check(message: string, options: CheckOptions = {}): Async
 
   const claimDate = options.claimDate ?? new Date().toISOString().slice(0, 10);
   const world = options.world ?? defaultWorld(message);
+  const exact = exactKey(message, image?.bytes, options.claimDate);
+  const hitEvents = (hit: "exact" | "claim", result: Result): CheckEvent[] => [
+    { type: "cache", hit, checkedAt: result.createdAt },
+    { type: "done", id: result.id },
+  ];
+  let locked: string | null = null;
 
   try {
+    // The same forward again: no AI call, so it returns before the limit and never counts.
+    const exactHit = options.recheck ? null : await cached(world, exact);
+    if (exactHit) {
+      yield* hitEvents("exact", exactHit);
+      return;
+    }
+
     // Every new Check counts, from its first paid call (Understand), so a public link can't run Understand
-    // unlimited. #12: an exact-cache hit returns before this line; a Claim-cache hit (known only after
-    // Understand) should give its count back. ponytail: no IP (only local runs) means one shared bucket.
-    const limit = options.demoPass ? null : await limitMessage(world, options.ip ?? "unknown");
+    // unlimited. ponytail: no IP (only local runs) means one shared bucket.
+    const ip = options.ip ?? "unknown";
+    const limit = options.demoPass ? null : await limitMessage(world, ip);
     if (limit) {
       yield { type: "error", message: limit };
       return;
@@ -252,6 +271,18 @@ export async function* check(message: string, options: CheckOptions = {}): Async
     const claim = understood.main_claim;
     const mainClaim = claim && { original: claim.original, canonicalEn: claim.canonical_en };
     yield { type: "understood", claim: mainClaim };
+
+    const claimCache = claim && claimKey(claim.canonical_en, claimDate);
+    if (claimCache && !options.recheck) {
+      const claimHit = await claimResultOrLock(world, claimCache);
+      if (claimHit) {
+        // Known only after Understand, so this Check was counted: its count goes back.
+        if (!options.demoPass) await Promise.all([world.uncount(ipCounter(ip)), world.uncount(DAY_COUNTER)]);
+        yield* hitEvents("claim", claimHit);
+        return;
+      }
+      locked = claimCache;
+    }
 
     // ponytail: the Photo check runs before the agent, adding its ~10s to a Check with a photo;
     // run the two side by side if that feels slow.
@@ -291,10 +322,16 @@ export async function* check(message: string, options: CheckOptions = {}): Async
       photoCheck: photo?.photoCheck ?? null,
     };
     await world.saveResult(result);
+    const seconds = cacheSeconds(claim?.claim_type ?? null, result);
+    await Promise.all([exact, claimCache].map((key) => key && world.setKey(key, result.id, seconds)));
     yield { type: "done", id: result.id };
   } catch (error) {
     // Only replay has gaps, so only dev and tests ever see this message.
     const message = error instanceof ReplayGap ? error.message : "Something went wrong while checking this. Please try again.";
     yield { type: "error", message };
+  } finally {
+    // Also runs if the person leaves mid-Check; checks waiting on this Claim then run it themselves.
+    // A failed unlock is left to the lock's expiry.
+    if (locked) await unlock(world, locked).catch(() => {});
   }
 }

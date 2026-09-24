@@ -19,7 +19,7 @@ function exifOf(field: FormDataEntryValue | null) {
 
 // Streams a Check's progress as server-sent events over POST (a GET/EventSource stream can't
 // carry an image). Takes multipart form data: `message`, an optional `image` file and its `exif`
-// JSON. Events: understood, step, evidence, verdict, done, error.
+// JSON, and `recheck=1` to skip the cache. Events: understood, step, evidence, verdict, cache, done, error.
 export async function POST(request: Request) {
   // ponytail: trusts the declared Content-Length; a chunked request without one is still read in full
   // (Vercel caps any request body at 4.5 MB).
@@ -36,7 +36,8 @@ export async function POST(request: Request) {
   const image: MessageImage | undefined =
     file instanceof File ? { bytes: new Uint8Array(await file.arrayBuffer()), exif: exifOf(form!.get("exif")) } : undefined;
   const demoPass = isDemoPass((await cookies()).get(DEMO_PASS_COOKIE)?.value);
-  return sse(check(message, { image, ip: clientIp(request), demoPass }));
+  const recheck = form?.get("recheck") === "1";
+  return sse(check(message, { image, ip: clientIp(request), demoPass, recheck }));
 }
 
 /** The caller's address as Vercel reports it. ponytail: trusts these headers, which Vercel sets

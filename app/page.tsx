@@ -2,6 +2,7 @@
 
 import { StepStatusIcon } from "@/components/step-status-icon";
 import { Button } from "@/components/ui/button";
+import { runCheck } from "@/lib/check-stream.ts";
 import {
   IMAGE_TYPES,
   MAX_IMAGE_BYTES,
@@ -99,54 +100,27 @@ export default function Home() {
       form.append("image", photo.blob, photo.name);
       if (photo.exif) form.append("exif", JSON.stringify(photo.exif));
     }
-    const response = await fetch("/api/check", { method: "POST", body: form });
-
-    const reader = response.ok ? response.body?.getReader() : undefined;
-    if (!reader) {
-      // The host turns away a request body over its limit (Vercel: 4.5 MB) before the Check runs.
-      setError(response.status === 413 ? PHOTO_TOO_BIG : "Something went wrong while checking this. Please try again.");
-      setRunning(false);
-      return;
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      const events = buffer.split("\n\n");
-      buffer = events.pop() ?? "";
-
-      for (const raw of events) {
-        const eventLine = raw.split("\n").find((l) => l.startsWith("event: "));
-        const dataLine = raw.split("\n").find((l) => l.startsWith("data: "));
-        if (!eventLine || !dataLine) continue;
-        const type = eventLine.slice("event: ".length);
-        const data = JSON.parse(dataLine.slice("data: ".length));
-
-        if (type === "understood") {
-          upsert({
-            id: "understood",
-            line: data.claim ? `Found the claim: "${data.claim.canonicalEn}"` : "No text to check, so checking the photo only",
-          });
-        } else if (type === "step") {
-          upsert({ id: data.id, line: data.line, status: data.status });
-        } else if (type === "evidence") {
-          upsert({
-            id: `evidence-${data.id}`,
-            line: `Kept a quote from ${data.site} (${data.stance === "supports" ? "for" : "against"} the claim)`,
-          });
-        } else if (type === "verdict") {
-          upsert({ id: "verdict", line: "Verdict ready" });
-        } else if (type === "done") {
-          router.push(`/check/${data.id}`);
-        } else if (type === "error") {
-          setError(data.message);
-          setRunning(false);
-        }
+    for await (const event of runCheck(form)) {
+      if (event.type === "understood") {
+        upsert({
+          id: "understood",
+          line: event.claim ? `Found the claim: "${event.claim.canonicalEn}"` : "No text to check, so checking the photo only",
+        });
+      } else if (event.type === "step") {
+        upsert({ id: event.id, line: event.line, status: event.status });
+      } else if (event.type === "evidence") {
+        upsert({
+          id: `evidence-${event.id}`,
+          line: `Kept a quote from ${event.site} (${event.stance === "supports" ? "for" : "against"} the claim)`,
+        });
+      } else if (event.type === "verdict") {
+        upsert({ id: "verdict", line: "Verdict ready" });
+      } else if (event.type === "cache") {
+        upsert({ id: "cache", line: "We've checked this before, so here's that answer" });
+      } else if (event.type === "done") {
+        router.push(`/check/${event.id}`);
+      } else if (event.type === "error") {
+        setError(event.message);
       }
     }
 

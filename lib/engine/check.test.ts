@@ -443,12 +443,12 @@ test("replay: copies of a photo with none dated before the Claim date don't make
   assert.equal((await resultOf(events)).photoCheck?.real, "unknown");
 });
 
-/** Several Checks in one world, so they share its rate-limit counters; the last event of each. */
+/** Several new Checks (Re-checks, so the cache never answers) in one world, sharing its rate-limit counters; the last event of each. */
 async function lastEvents(world: World, runs: CheckOptions[]): Promise<CheckEvent[]> {
   const last: CheckEvent[] = [];
   for (const options of runs) {
     let event: CheckEvent | undefined;
-    for await (event of check("Some forward", { ...options, world }));
+    for await (event of check("Some forward", { ...options, world, recheck: true }));
     last.push(event!);
   }
   return last;
@@ -487,4 +487,66 @@ test("replay: with the demo pass, neither limit applies", async () => {
 
   assert.equal(without.type, "error");
   assert.equal(withPass.type, "done");
+});
+
+/** One Check in a given world, so several Checks can share its caches. */
+async function run(world: World, message: string, options: CheckOptions = {}): Promise<CheckEvent[]> {
+  const events: CheckEvent[] = [];
+  for await (const event of check(message, { ...options, world })) events.push(event);
+  return events;
+}
+
+const doneId = (events: CheckEvent[]) => events.flatMap((e) => (e.type === "done" ? [e.id] : []))[0];
+const cacheHit = (events: CheckEvent[]) => events.flatMap((e) => (e.type === "cache" ? [e.hit] : []))[0];
+
+test("replay: the same forward checked again (spacing, emojis and 'Forwarded' aside) returns the stored Result with an exact cache hit and no AI call", async () => {
+  const world = replayWorld(scenarios.SOME_FORWARD);
+  const first = await run(world, "Some forward");
+  const noAi: World = { ...world, openai: async () => assert.fail("a cache hit made an AI call") };
+  const again = await run(noAi, "Forwarded  🙏 SOME   forward ");
+
+  assert.equal(cacheHit(first), undefined);
+  assert.equal(cacheHit(again), "exact");
+  assert.equal(doneId(again), doneId(first));
+});
+
+test("replay: a reworded version of a checked Claim hits the Claim cache", async () => {
+  const world = replayWorld(scenarios.SOME_FORWARD);
+  const first = await run(world, "Some forward");
+  // Replay's Understand gives the same canonical Claim whatever the wording, as luna would for a rewording.
+  const reworded = await run(world, "A forward, put another way");
+
+  assert.equal(cacheHit(reworded), "claim");
+  assert.equal(doneId(reworded), doneId(first));
+  assert.ok(!reworded.some((e) => e.type === "step" || e.type === "verdict"), "no agent steps or Verdict run again");
+});
+
+test("replay: two simultaneous Checks of one Claim run the pipeline once", async () => {
+  const world = replayWorld(scenarios.SOME_FORWARD);
+  const [a, b] = await Promise.all([run(world, "Some forward"), run(world, "Some forward, again")]);
+
+  assert.deepEqual([cacheHit(a), cacheHit(b)].sort(), ["claim", undefined]);
+  assert.equal(doneId(a), doneId(b));
+});
+
+test("replay: Re-check skips both caches and saves a fresh Result, which later Checks then get", async () => {
+  const world = replayWorld(scenarios.SOME_FORWARD);
+  const first = await run(world, "Some forward");
+  const fresh = await run(world, "Some forward", { recheck: true });
+  const after = await run(world, "Some forward");
+
+  assert.equal(cacheHit(fresh), undefined);
+  assert.notEqual(doneId(fresh), doneId(first));
+  assert.equal(doneId(after), doneId(fresh));
+});
+
+test("replay: cache hits don't count toward the limits; the same forward still opens once the hour's are used up", async () => {
+  const world = replayWorld(scenarios.SOME_FORWARD);
+  const ip = { ip: "1.2.3.4" };
+  await run(world, "Some forward", ip);
+  for (let i = 0; i < 10; i++) await run(world, `Some forward, wording ${i}`, ip); // Claim-cache hits
+  for (let i = 0; i < 4; i++) assert.ok(doneId(await run(world, "Some forward", { ...ip, recheck: true })), "new Checks 2–5 run");
+
+  assert.match(errorText((await run(world, "Some forward", { ...ip, recheck: true })).at(-1)!), /5 new checks this hour/);
+  assert.equal(cacheHit(await run(world, "Some forward", ip)), "exact");
 });

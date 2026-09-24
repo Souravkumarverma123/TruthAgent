@@ -1,7 +1,9 @@
+import { RecheckButton } from "@/components/recheck-button";
 import { StepStatusIcon } from "@/components/step-status-icon";
 import { getResult } from "@/lib/engine/boundary.ts";
 import type { Confidence, Evidence, PhotoCheck, ReasoningStep, Result, Tier, Verdict, VerdictLabel } from "@/lib/engine/schemas.ts";
 import { isFactChecker, tierOf } from "@/lib/engine/sources.ts";
+import Link from "next/link";
 
 const LABEL_TEXT: Record<VerdictLabel, string> = {
   true: "True",
@@ -26,6 +28,16 @@ const TIER_TEXT: Record<Tier, string> = {
 };
 
 const DAY_FORMAT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
+const AGO_UNITS = [["day", 24 * 60 * 60], ["hour", 60 * 60], ["minute", 60]] as const;
+
+/** "just now", "5 minutes ago", "yesterday": how old a Result is as the page is opened. */
+function ago(createdAt: string): string {
+  const seconds = (Date.now() - Date.parse(createdAt)) / 1000;
+  const unit = AGO_UNITS.find(([, size]) => seconds >= size);
+  if (!unit) return "just now";
+  return new Intl.RelativeTimeFormat("en", { numeric: "auto" }).format(-Math.floor(seconds / unit[1]), unit[0]);
+}
 
 /** Saved Results last 30 days, so a proof page can be asked for one saved before a field
  * existed. What's there is shown; what isn't is worked out from the url or left out. */
@@ -187,6 +199,22 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-16">
+      {/* A photo isn't saved with the Result, so a Check with one can't be re-run from here. */}
+      <section className="flex flex-col gap-2">
+        <p className="text-sm text-muted-foreground">Checked {ago(result.createdAt)}</p>
+        {photoCheck ? (
+          <p className="text-xs text-muted-foreground">
+            To check it again, add the photo on the{" "}
+            <Link href="/" className="underline underline-offset-2">
+              home page
+            </Link>
+            .
+          </p>
+        ) : (
+          result.message.text && <RecheckButton message={result.message.text} />
+        )}
+      </section>
+
       {verdict && (
         <>
           <span
