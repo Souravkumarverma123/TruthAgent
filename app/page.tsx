@@ -2,9 +2,17 @@
 
 import { StepStatusIcon } from "@/components/step-status-icon";
 import { Button } from "@/components/ui/button";
-import { IMAGE_TYPES, MAX_MESSAGE_LENGTH, NOT_AN_IMAGE, type AgentStep, type Exif } from "@/lib/engine/schemas.ts";
+import {
+  IMAGE_TYPES,
+  MAX_IMAGE_BYTES,
+  MAX_MESSAGE_LENGTH,
+  NOT_AN_IMAGE,
+  PHOTO_TOO_BIG,
+  type AgentStep,
+  type Exif,
+} from "@/lib/engine/schemas.ts";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 /** A line in the live step list; agent steps update in place by id. */
 type Row = { id: string; line: string; status?: AgentStep["status"] };
@@ -56,8 +64,11 @@ export default function Home() {
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [photo, setPhoto] = useState<Photo | null>(null);
+  /** Bumped on every pick or Remove, so a slow earlier pick finishing late can't replace a newer one. */
+  const pick = useRef(0);
 
   async function onPhoto(file: File | undefined) {
+    const current = ++pick.current;
     setError(null);
     setPhoto(null);
     if (!file) return;
@@ -66,6 +77,12 @@ export default function Home() {
       return;
     }
     const [exif, blob] = await Promise.all([readExif(file), resized(file)]);
+    if (current !== pick.current) return;
+    // Only when the browser couldn't resize it, so the original goes up.
+    if (blob.size > MAX_IMAGE_BYTES) {
+      setError(PHOTO_TOO_BIG);
+      return;
+    }
     setPhoto({ name: file.name, blob, exif });
   }
 
@@ -84,9 +101,10 @@ export default function Home() {
     }
     const response = await fetch("/api/check", { method: "POST", body: form });
 
-    const reader = response.body?.getReader();
+    const reader = response.ok ? response.body?.getReader() : undefined;
     if (!reader) {
-      setError("Something went wrong while checking this. Please try again.");
+      // The host turns away a request body over its limit (Vercel: 4.5 MB) before the Check runs.
+      setError(response.status === 413 ? PHOTO_TOO_BIG : "Something went wrong while checking this. Please try again.");
       setRunning(false);
       return;
     }
@@ -168,7 +186,10 @@ export default function Home() {
           {photo && (
             <span className="flex items-center gap-2 text-sm text-muted-foreground">
               {photo.name}
-              <button type="button" onClick={() => setPhoto(null)} disabled={running} className="underline underline-offset-2">
+              <button type="button" onClick={() => {
+                  pick.current++;
+                  setPhoto(null);
+                }} disabled={running} className="underline underline-offset-2">
                 Remove
               </button>
             </span>

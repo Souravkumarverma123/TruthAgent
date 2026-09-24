@@ -14,6 +14,7 @@ import {
   MAX_IMAGE_BYTES,
   MAX_MESSAGE_LENGTH,
   NOT_AN_IMAGE,
+  PHOTO_TOO_BIG,
   UnderstandSchema,
   VerdictSchema,
   type CheckEvent,
@@ -209,7 +210,7 @@ export async function* check(message: string, options: CheckOptions = {}): Async
     return;
   }
   if (image && image.bytes.length > MAX_IMAGE_BYTES) {
-    yield { type: "error", message: "That photo is over 5 MB — please add a smaller one." };
+    yield { type: "error", message: PHOTO_TOO_BIG };
     return;
   }
 

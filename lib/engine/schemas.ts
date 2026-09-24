@@ -11,6 +11,7 @@ export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
 export type ImageType = (typeof IMAGE_TYPES)[number];
 export const NOT_AN_IMAGE = "That file isn't a photo we can read — please add a PNG, JPEG or WEBP image.";
+export const PHOTO_TOO_BIG = "That photo is over 5 MB — please add a smaller one.";
 
 /** CONTEXT.md: True, False, Misleading, Outdated, Not confirmed yet.
  * Outdated needs Claim date handling (issue #9) and isn't produced yet. */

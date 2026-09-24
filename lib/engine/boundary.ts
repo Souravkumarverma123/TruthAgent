@@ -278,11 +278,18 @@ async function serviceJson(response: Response): Promise<Record<string, unknown>>
   return body;
 }
 
+/** SerpApi's Image API upload limit. */
+const MAX_UPLOAD_BYTES = 500 * 1024;
+
 /** What photo services get: small enough for SerpApi's 500 KB upload limit, and re-encoded so the
  * file's EXIF (the phone's GPS) isn't passed on. */
 async function outgoingPhoto(image: Uint8Array): Promise<Blob> {
-  const jpeg = await sharp(image).resize(1024, 1024, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
-  return new Blob([new Uint8Array(jpeg)], { type: "image/jpeg" });
+  // Size and quality don't bound the bytes: a detailed photo can pass 500 KB, so step down until it fits.
+  for (const [side, quality] of [[1024, 80], [1024, 60], [768, 50], [512, 50]]) {
+    const jpeg = await sharp(image).resize(side, side, { fit: "inside", withoutEnlargement: true }).jpeg({ quality }).toBuffer();
+    if (jpeg.length <= MAX_UPLOAD_BYTES) return new Blob([new Uint8Array(jpeg)], { type: "image/jpeg" });
+  }
+  throw new Error("Photo too detailed to fit the 500 KB upload limit");
 }
 
 /** An uploaded photo has no public URL, so it goes up to SerpApi's Image API first (the id lasts
