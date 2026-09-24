@@ -11,6 +11,7 @@ import { processEvidence } from "./evidence.ts";
 import { MODELS } from "./models.ts";
 import { photoCheck } from "./photo.ts";
 import { cacheSeconds } from "./sources.ts";
+import { calendarDay } from "./tools.ts";
 import {
   MAX_IMAGE_BYTES,
   MAX_MESSAGE_LENGTH,
@@ -26,7 +27,7 @@ import {
 import { judge } from "./verdict.ts";
 
 export interface CheckOptions {
-  /** "When did you get this?" — defaults to today. Wired up by issue #9. */
+  /** "When did you get this?" (YYYY-MM-DD): the day the Claim is judged as of. Defaults to today. */
   claimDate?: string;
   /** The outside world. Tests pass a replay world; otherwise the one OUTSIDE_WORLD_MODE picks. */
   world?: World;
@@ -120,8 +121,17 @@ export async function* check(message: string, options: CheckOptions = {}): Async
     return;
   }
 
+  // It goes into the agent's and the Verdict's prompts, so only a real day gets in.
+  // ponytail: a day ahead of UTC's is allowed (it's already tomorrow in India for part of UTC's day), so
+  // anyone can judge as of tomorrow; take the caller's time zone if that matters.
+  const tomorrow = new Date(Date.now() + 24 * HOUR * 1000).toISOString().slice(0, 10);
+  if (options.claimDate !== undefined && !(calendarDay(options.claimDate) && options.claimDate <= tomorrow)) {
+    yield { type: "error", message: "That date doesn't work — please pick a day up to today." };
+    return;
+  }
+
   const claimDate = options.claimDate ?? new Date().toISOString().slice(0, 10);
-  const world = options.world ?? defaultWorld(message);
+  const world = options.world ?? defaultWorld(message, claimDate);
   const exact = exactKey(message, image?.bytes, options.claimDate);
   const hitEvents = (hit: "exact" | "claim", result: Result): CheckEvent[] => [
     { type: "cache", hit, id: result.id },
@@ -185,6 +195,7 @@ export async function* check(message: string, options: CheckOptions = {}): Async
     const result: Result = {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
+      claimDate,
       message: { text: message, imageText: understood.image_text },
       mainClaim,
       ...checked,

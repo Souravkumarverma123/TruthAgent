@@ -13,7 +13,7 @@ import {
   type AgentStep,
   type Exif,
 } from "@/lib/engine/schemas.ts";
-import { ArrowRightIcon, CircleAlertIcon, ImagePlusIcon, LoaderCircleIcon } from "lucide-react";
+import { ArrowRightIcon, ChevronDownIcon, CircleAlertIcon, ImagePlusIcon, LoaderCircleIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
@@ -67,6 +67,9 @@ export default function Home() {
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [photo, setPhoto] = useState<Photo | null>(null);
+  // The phone's own today (YYYY-MM-DD), not UTC's.
+  const today = new Date().toLocaleDateString("en-CA");
+  const [claimDate, setClaimDate] = useState(today);
   /** Bumped on every pick or Remove, so a slow earlier pick finishing late can't replace a newer one. */
   const pick = useRef(0);
 
@@ -98,6 +101,8 @@ export default function Home() {
 
     const form = new FormData();
     form.append("message", message);
+    // Always sent, so the Message is judged as of the day the person saw here, not UTC's.
+    if (claimDate) form.append("claimDate", claimDate);
     if (photo) {
       form.append("image", photo.blob, photo.name);
       if (photo.exif) form.append("exif", JSON.stringify(photo.exif));
@@ -188,6 +193,26 @@ export default function Home() {
               </span>
             )}
           </div>
+
+          <details className="group text-lg text-foreground">
+            <summary className="flex w-fit cursor-pointer list-none items-center gap-2 rounded-full py-1 font-semibold text-primary outline-none focus-visible:ring-4 focus-visible:ring-primary/15 [&::-webkit-details-marker]:hidden">
+              More options
+              <ChevronDownIcon aria-hidden className="size-5 transition-transform group-open:rotate-180" />
+            </summary>
+            <label className="mt-3 flex flex-col gap-2">
+              <span>When did you get this?</span>
+              <span className="text-base text-muted-foreground">We check whether it was true on that day. Leave it as today unless it came a while ago.</span>
+              <input
+                type="date"
+                value={claimDate}
+                max={today}
+                onChange={(e) => setClaimDate(e.target.value)}
+                disabled={running}
+                suppressHydrationWarning
+                className="h-12 w-fit rounded-2xl border-[1.5px] border-input bg-background px-4 text-lg text-foreground outline-none hover:border-foreground/30 focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/15 disabled:bg-muted/60"
+              />
+            </label>
+          </details>
 
           <Button
             onClick={onCheck}

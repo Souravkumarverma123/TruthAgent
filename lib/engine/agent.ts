@@ -64,7 +64,7 @@ function instructions(claimType: ClaimType, claimDate: string): string {
     `Who can settle this kind of Claim: ${AUTHORITY_RULES[claimType]}`,
     `Find Evidence for and against the Claim. Use web_search to find pages (at most ${MAX_SEARCHES} searches) ` +
       "and read_page to read a page before quoting it. Quote only words that appear in the page text.",
-    "Also search for denials and retractions, not just the original story.",
+    "Also search for denials and retractions, not just the original story, and for whether it changed before or after the Claim date.",
     "If a tool returns an error, carry on with other pages or tools.",
     "When you have enough, stop and answer with the Evidence: each item's real url, " +
       "an exact quote, and whether it supports, contradicts, or is irrelevant to the Claim. Never invent a url or a quote.",

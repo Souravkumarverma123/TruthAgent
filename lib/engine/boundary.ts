@@ -414,11 +414,13 @@ export function setDemoScenarios(scenarios: Record<string, Scenario>): void {
   (globalThis as Record<symbol, unknown>)[DEMO_SCENARIOS_KEY] = scenarios;
 }
 
-/** The world a Check gets when none is given: live, or replay of the demo Scenario for this Message. */
-export function defaultWorld(message: string): World {
+/** The world a Check gets when none is given: live, or replay of the demo Scenario for this Message
+ * (on this Claim date, if the demos have one for it). */
+export function defaultWorld(message: string, claimDate: string): World {
   if (outsideWorldMode() === "live") return liveWorld;
   const demos = (globalThis as Record<symbol, Record<string, Scenario> | undefined>)[DEMO_SCENARIOS_KEY];
-  return replayWorld(demos?.[message.trim()] ?? {}, fileResults);
+  const key = message.trim();
+  return replayWorld(demos?.[`${key}|${claimDate}`] ?? demos?.[key] ?? {}, fileResults);
 }
 
 /** The proof page's read of a saved Result, from the store the default world saves to. */

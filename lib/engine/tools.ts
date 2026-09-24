@@ -9,7 +9,7 @@ const TOOL_MS = 8_000;
 /** A YYYY-MM-DD string that is a real calendar day, else null. Round-tripping
  * through Date rejects both unparseable days and ones it would roll over,
  * such as 2026-02-30. */
-function calendarDay(day: string): string | null {
+export function calendarDay(day: string): string | null {
   const parsed = new Date(`${day}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
 }
