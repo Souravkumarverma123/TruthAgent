@@ -375,13 +375,86 @@ export const SCREENSHOT: Scenario = {
   reverseImage: [],
 };
 
-/** The dev server's replay answers, by the Message typed. A photo sent with no text gets PHOTO_ONLY. */
+const DHARMENDRA_FORWARD = "Dharmendra died";
+
+/** One Claim, judged as of two Claim dates (docs/research/gap-research.md §1): the Evidence a Check
+ * finds on each date, and luna sure of its label both times. */
+function dharmendra(
+  label: VerdictOutput["label"],
+  one_line: string,
+  sources: { url: string; line: string; date: string; origin: string; stance: "supports" | "contradicts" }[],
+): Scenario {
+  const verdict: VerdictOutput = {
+    label,
+    one_line,
+    reasoning: sources.map((s, i) => ({ tag: "fact", text: s.line, evidence_ids: [`E${i + 1}`] })),
+    alternatives: sure(label, 0.9),
+    what_would_change: "A statement from his family saying otherwise.",
+  };
+  return {
+    understand: understood(DHARMENDRA_FORWARD, "death_health"),
+    agentTurns: [
+      {
+        responseId: `resp_replay_dharmendra_${label}`,
+        searches: [{ query: "Dharmendra death news", failed: false }],
+        calls: [],
+        evidence: sources.map((s) => ({ url: s.url, quote: s.line, stance: s.stance })),
+      },
+    ],
+    pages: Object.fromEntries(sources.map((s) => [s.url, html(s.date, `<p>${s.line}</p>`)])),
+    origins: { origins: sources.map((s, i) => ({ origin: s.origin, evidence_ids: [`E${i + 1}`] })) },
+    verdicts: { luna: [verdict, verdict] },
+  };
+}
+
+/** As of 11 Nov 2025: he was in hospital and false reports of his death spread; his family denied them. */
+export const DHARMENDRA_RUMOUR = dharmendra("false", "His family said he was alive and recovering in hospital; the death reports were false.", [
+  {
+    url: "https://www.khaleejtimes.com/entertainment/dharmendra-daughter-denies-death-reports",
+    line: "Esha Deol said her father Dharmendra is stable and recovering, and asked people not to spread false news.",
+    date: "2025-11-11",
+    origin: "Esha Deol's statement",
+    stance: "contradicts",
+  },
+  {
+    url: "https://www.business-standard.com/india-news/dharmendra-bollywood-actor-health-stable-mumbai-hospital-family-125111100169_1.html",
+    line: "Dharmendra is stable and under observation at a Mumbai hospital, his family said, PTI reported.",
+    date: "2025-11-11",
+    origin: "PTI wire",
+    stance: "contradicts",
+  },
+]);
+
+/** As of today: he died on 24 Nov 2025. */
+export const DHARMENDRA_DIED = dharmendra("true", "Dharmendra died at his home in Mumbai on 24 November 2025, aged 89.", [
+  {
+    url: "https://www.ndtv.com/entertainment/dharmendra-dies-at-89",
+    line: "Veteran actor Dharmendra died at his home in Mumbai on Monday, his family said. He was 89.",
+    date: "2025-11-24",
+    origin: "Deol family's statement",
+    stance: "supports",
+  },
+  {
+    url: "https://www.thehindu.com/entertainment/movies/dharmendra-passes-away/article70198765.ece",
+    line: "Dharmendra, one of Hindi cinema's biggest stars, passed away on November 24, PTI reported.",
+    date: "2025-11-24",
+    origin: "PTI wire",
+    stance: "supports",
+  },
+]);
+
+/** The Claim date the dev server's replay answers DHARMENDRA_RUMOUR for; any other date gets DHARMENDRA_DIED. */
+export const DHARMENDRA_RUMOUR_DATE = "2025-11-11";
+
+/** The dev server's replay answers, by the Message typed, or `message|claim date` for a Message whose
+ * answer depends on its Claim date. A photo sent with no text gets PHOTO_ONLY. */
 export const DEMO_SCENARIOS: Record<string, Scenario> = {
   ...Object.fromEntries(
-    [BACHCHAN, RBI_500, LAPTOP, WITHDRAWN_2000, HOSPITAL, RETIRED, TRAFFIC_LIGHTS].map((s) => [
+    [BACHCHAN, RBI_500, LAPTOP, WITHDRAWN_2000, HOSPITAL, RETIRED, TRAFFIC_LIGHTS, DHARMENDRA_DIED].map((s) => [
       s.understand!.main_claim!.original,
       s,
     ]),
   ),
+  [`${DHARMENDRA_FORWARD}|${DHARMENDRA_RUMOUR_DATE}`]: DHARMENDRA_RUMOUR,
   "": PHOTO_ONLY,
 };

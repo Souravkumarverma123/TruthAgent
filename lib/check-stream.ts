@@ -1,7 +1,7 @@
 // The browser's side of the Check endpoint: posts a Message and yields its server-sent events.
 import { PHOTO_TOO_BIG, type CheckEvent } from "./engine/schemas.ts";
 
-/** Posts a Message's form (`message`, optional `image` and `exif`, `recheck`) and yields its events as they arrive. */
+/** Posts a Message's form (`message`, optional `image`, `exif` and `claimDate`, `recheck`) and yields its events as they arrive. */
 export async function* runCheck(form: FormData): AsyncGenerator<CheckEvent> {
   const response = await fetch("/api/check", { method: "POST", body: form });
   const reader = response.ok ? response.body?.getReader() : undefined;

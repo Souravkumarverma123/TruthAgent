@@ -13,11 +13,12 @@ const HARD_PROBABILITY = 0.7;
 
 /** Our labels, as the Verdict prompt defines them. Internally they map to AVeriTeC's (docs/architecture.md
  * §5 ⑦): true = Supported, false = Refuted, misleading = Conflicting Evidence/Cherrypicking,
- * unconfirmed = Not Enough Evidence. Kept out of the prompt so the AVeriTeC wording can't pull the model. */
+ * outdated = Refuted as of the Claim date but Supported earlier, unconfirmed = Not Enough Evidence. Kept out of the prompt so the AVeriTeC wording can't pull the model. */
 const LABEL_DEFINITIONS =
   "true: the Evidence backs the core of the Claim. " +
   "false: the core of the Claim was never true. " +
   "misleading: the facts are right but the framing or conclusion is wrong. " +
+  "outdated: the Claim was true at an earlier date and isn't as of the Claim date. " +
   "unconfirmed: too few Independent sources either way; never guess.";
 
 async function liveVerdict(
@@ -33,6 +34,7 @@ async function liveVerdict(
     instructions:
       `Today's date is ${new Date().toISOString().slice(0, 10)}. Judge the Claim as of ${claimDate}, ` +
       `using only the Evidence given. Labels: ${LABEL_DEFINITIONS} ` +
+      "Mind each item's date: something first reported after the Claim date most likely hadn't happened yet as of it. " +
       "Give a one-line plain-language reason. Evidence marked quoteVerified: false couldn't be checked " +
       "against its page; items sharing an Origin count as one Independent source, and items marked " +
       "factCheck: true repeat someone else's verdict, so they are a lead, not an Independent source. " +

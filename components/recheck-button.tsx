@@ -6,8 +6,9 @@ import { RotateCwIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-/** Runs a fresh Check of the Message, skipping the cache, and opens its Result. */
-export function RecheckButton({ message }: { message: string }) {
+/** Runs a fresh Check of the Message, skipping the cache, and opens its Result. A Claim date the
+ * user set is kept; otherwise it's judged as of today again. */
+export function RecheckButton({ message, claimDate }: { message: string; claimDate?: string }) {
   const router = useRouter();
   const [running, setRunning] = useState(false);
   const [line, setLine] = useState<string | null>(null);
@@ -19,6 +20,7 @@ export function RecheckButton({ message }: { message: string }) {
     const form = new FormData();
     form.append("message", message);
     form.append("recheck", "1");
+    if (claimDate) form.append("claimDate", claimDate);
     for await (const event of runCheck(form)) {
       if (event.type === "step") setLine(event.line);
       else if (event.type === "done") router.push(`/check/${event.id}`);

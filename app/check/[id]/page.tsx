@@ -13,14 +13,32 @@ import type {
   Verdict,
   VerdictLabel,
 } from "@/lib/engine/schemas.ts";
-import { ArrowUpRightIcon } from "lucide-react";
+import {
+  ArrowUpRightIcon,
+  CircleCheckIcon,
+  CircleXIcon,
+  HistoryIcon,
+  HourglassIcon,
+  TriangleAlertIcon,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
 
 const LABEL_TEXT: Record<VerdictLabel, string> = {
   true: "True",
   false: "False",
   misleading: "Misleading",
+  outdated: "Outdated",
   unconfirmed: "Not confirmed yet",
+};
+
+/** Each label's icon and what it means (CONTEXT.md), so no label has to be taken on trust. */
+const LABEL_MEANING: Record<VerdictLabel, { icon: LucideIcon; definition: string }> = {
+  true: { icon: CircleCheckIcon, definition: "The evidence backs the claim." },
+  false: { icon: CircleXIcon, definition: "The core of the claim was never true." },
+  misleading: { icon: TriangleAlertIcon, definition: "The facts are right, but the framing or conclusion is wrong." },
+  outdated: { icon: HistoryIcon, definition: "It was true at an earlier date, but isn't any more as of the date checked." },
+  unconfirmed: { icon: HourglassIcon, definition: "Not enough independent sources either way yet." },
 };
 
 /** The ruling band's field and ink: red and amber appear only here and on state marks. */
@@ -28,6 +46,7 @@ const LABEL_TONE: Record<VerdictLabel, { band: string; word: string }> = {
   true: { band: "bg-true-soft", word: "text-true" },
   false: { band: "bg-false-soft", word: "text-false" },
   misleading: { band: "bg-muted", word: "text-foreground" },
+  outdated: { band: "bg-muted", word: "text-foreground" },
   unconfirmed: { band: "bg-pending-soft", word: "text-pending" },
 };
 
@@ -217,6 +236,9 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
   const backing = verdict && verdict.label !== "unconfirmed" ? AGREEING[verdict.label] : null;
   const backRule = verdict ? (verdict.label === "true" ? "border-true" : "border-false") : null;
   const tone = verdict ? LABEL_TONE[verdict.label] : null;
+  const LabelIcon = verdict && LABEL_MEANING[verdict.label].icon;
+  // A Claim date on the day of the Check is the default, so Re-check judges as of its own today instead.
+  const chosenClaimDate = result.claimDate !== result.createdAt.slice(0, 10) ? result.claimDate : undefined;
 
   return (
     <>
@@ -233,7 +255,7 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
               .
             </p>
           ) : (
-            result.message.text && <RecheckButton message={result.message.text} />
+            result.message.text && <RecheckButton message={result.message.text} claimDate={chosenClaimDate} />
           )}
         </div>
       </SiteBar>
@@ -242,13 +264,26 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
         {verdict && tone && (
           <section aria-label="Verdict" className={`settle ${tone.band}`}>
             <div className="mx-auto grid w-full max-w-6xl gap-6 px-5 py-10 sm:px-10 sm:py-14 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-end lg:gap-12">
-              <p
-                className={`leading-[0.95] font-bold tracking-[-0.04em] text-balance ${tone.word} ${
-                  verdict.label === "unconfirmed" ? "text-[clamp(3rem,6vw,4.5rem)]" : "text-[clamp(3.5rem,9vw,6rem)]"
-                }`}
-              >
-                {LABEL_TEXT[verdict.label]}
-              </p>
+              <div className="flex flex-col gap-4">
+                <p
+                  className={`flex items-center gap-[0.2em] leading-[0.95] font-bold tracking-[-0.04em] text-balance ${tone.word} ${
+                    // Only the short words fit their column at full size, beside the icon.
+                    verdict.label === "true" || verdict.label === "false" ? "text-[clamp(3.5rem,9vw,6rem)]" : "text-[clamp(3rem,6vw,4.5rem)]"
+                  }`}
+                >
+                  {LabelIcon && <LabelIcon aria-hidden strokeWidth={2.5} className="size-[0.75em] shrink-0" />}
+                  {LABEL_TEXT[verdict.label]}
+                </p>
+                <p className="text-lg text-foreground/75">{LABEL_MEANING[verdict.label].definition}</p>
+                {result.claimDate && (
+                  <p className="text-lg text-foreground">
+                    Judged as of{" "}
+                    <span className="font-mono font-medium tracking-[-0.02em] tabular-nums">
+                      {DAY_FORMAT.format(new Date(result.claimDate))}
+                    </span>
+                  </p>
+                )}
+              </div>
               <div className="flex flex-col gap-5 lg:pb-2">
                 <p className="text-2xl leading-snug font-medium text-pretty text-foreground sm:text-3xl">{verdict.oneLine}</p>
                 <ConfidenceScale confidence={verdict.confidence} />

@@ -30,11 +30,13 @@ export function originsBySide(evidence: Evidence[]) {
 export const independentSources = (evidence: Evidence[]) => originsBySide(evidence).total;
 
 /** The side whose Evidence backs the label. ponytail: Misleading counts the side that corrects the
- * framing (contradicts); give it both sides if the accuracy run says its Confidence is too low. */
+ * framing and Outdated the side showing it changed (contradicts); give them both sides if the accuracy
+ * run says their Confidence is too low. */
 export const AGREEING: Record<Exclude<VerdictLabel, "unconfirmed">, Evidence["stance"]> = {
   true: "supports",
   false: "contradicts",
   misleading: "contradicts",
+  outdated: "contradicts",
 };
 
 const sources = (n: number) => (n === 1 ? "1 Independent source" : `${n} Independent sources`);
