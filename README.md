@@ -393,10 +393,10 @@ The full spec is [#1](https://github.com/Souravkumarverma123/TruthAgent/issues/1
 | ✅ | #25 Replay by Scenario | Done |
 | ✅ | #11 Photo check: upload, reverse image search, EXIF (P0) | Done |
 | ✅ | #13 Rate limits and demo pass (P0) | Done |
+| ⏳ | #12 Caching, lock, Re-check and "checked X ago" (P0) | Open |
 | ⏳ | #6 Already fact-checked box, with same-event and outdated guards (P1) | Open |
 | ⏳ | #9 Claim date and Outdated Verdicts (P1) | Open |
 | ⏳ | #10 Several Claims and Opinions in one forward (P1) | Open |
-| ⏳ | #12 Caching, lock, Re-check and "checked X ago" (P1) | Open |
 | ⏳ | #15 Accuracy test set and live accuracy run (P1) | Open |
 | ⏳ | #26 One Verdict module (P1) | Open |
 | ⏳ | #14 Hindi Verdicts (P2) | Open |
