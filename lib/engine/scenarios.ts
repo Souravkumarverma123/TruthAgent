@@ -6,7 +6,11 @@ import type { ClaimType, Understood, VerdictOutput } from "./schemas.ts";
 
 /** No search happens in replay, so understanding just echoes what was typed. */
 function understood(message: string, claimType: ClaimType): Understood {
-  return { main_claim: { original: message, canonical_en: message, claim_type: claimType } };
+  return {
+    image_text: null,
+    image_description: null,
+    main_claim: { original: message, canonical_en: message, claim_type: claimType },
+  };
 }
 
 /** A Verdict's alternatives: its label at `probability`, the rest Not confirmed yet. */
@@ -269,10 +273,117 @@ export const SOME_FORWARD: Scenario = {
   agentTurns: [{ responseId: "resp_replay_nothing", searches: [], calls: [], evidence: [] }],
 };
 
-/** The dev server's replay answers, by the Message typed. */
-export const DEMO_SCENARIOS: Record<string, Scenario> = Object.fromEntries(
-  [BACHCHAN, RBI_500, LAPTOP, WITHDRAWN_2000, HOSPITAL, RETIRED].map((s) => [
-    s.understand!.main_claim.original,
-    s,
-  ]),
-);
+/** A photo's bytes as a Check gets them. Replay never looks past the file signature, so the
+ * PNG signature alone stands in for a photo. */
+export const PHOTO = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+
+const BZ_BERLIN = "https://www.bz-berlin.de/berlin/ampel-nach-autobrand-geschmolzen";
+const LARENA = "https://www.larena.it/territori/lugagnano-semaforo-fuso-incendio";
+const RESHARE = "https://www.viralpics.example/europe-so-hot-traffic-lights-melting";
+
+/** Reverse image search on the melted traffic light: the Berlin original (June 2025), the
+ * Lugagnano report (June 2026) and an undated reshare that Wayback dates. */
+const TRAFFIC_LIGHT_PHOTO: Scenario = {
+  reverseImage: [
+    { url: RESHARE, title: "Europe is so hot the traffic lights are melting", source: "viralpics.example" },
+    { url: LARENA, title: "Lugagnano, semaforo fuso dall'incendio", source: "L'Arena" },
+    { url: BZ_BERLIN, title: "Ampel nach Autobrand geschmolzen", source: "B.Z. Berlin" },
+  ],
+  aiGenerated: 0.02,
+  pages: {
+    [RESHARE]: "<html><body><p>Europe is so hot the traffic lights are melting!</p></body></html>",
+    [waybackCdxUrl(RESHARE)]: '[["timestamp"],["20260701120000"]]',
+    [LARENA]: html("2026-06-23", "<p>The traffic light in Lugagnano was melted by a fire in a nearby bin, firefighters said.</p>"),
+    [BZ_BERLIN]: html("2025-06-20", "<p>A traffic light in Berlin melted after a car parked beneath it caught fire.</p>"),
+  },
+};
+
+const TRAFFIC_LIGHT_FORWARD = "Europe heatwave: it's so hot the traffic lights are melting! Forward to all";
+
+/** The traffic-light demo (docs/requirements.md): real footage of fire damage, so the Photo check
+ * says the photo is real while the heatwave story is False. */
+export const TRAFFIC_LIGHTS: Scenario = (() => {
+  const verdict: VerdictOutput = {
+    label: "false",
+    one_line: "The photo is real, but the traffic lights melted in fires, not a heatwave.",
+    reasoning: [
+      { tag: "fact", text: "L'Arena reports the Lugagnano light was melted by a bin fire.", evidence_ids: ["E1"] },
+      { tag: "fact", text: "B.Z. reports the Berlin light melted after a car fire.", evidence_ids: ["E2"] },
+    ],
+    alternatives: sure("false", 0.9),
+    what_would_change: "A report of traffic lights melting from heat alone.",
+  };
+  return {
+    ...TRAFFIC_LIGHT_PHOTO,
+    understand: {
+      image_text: null,
+      image_description: "A traffic light drooping and melted on a street pole.",
+      main_claim: {
+        original: TRAFFIC_LIGHT_FORWARD,
+        canonical_en: "A heatwave in Europe melted traffic lights.",
+        claim_type: "image_context",
+      },
+    },
+    agentTurns: [
+      {
+        responseId: "resp_replay_traffic",
+        searches: [{ query: "melted traffic light Europe heatwave", failed: false }],
+        calls: [],
+        evidence: [
+          {
+            url: LARENA,
+            quote: "The traffic light in Lugagnano was melted by a fire in a nearby bin",
+            stance: "contradicts",
+          },
+          { url: BZ_BERLIN, quote: "A traffic light in Berlin melted after a car parked beneath it caught fire", stance: "contradicts" },
+        ],
+      },
+    ],
+    origins: {
+      origins: [
+        { origin: "L'Arena's own reporting", evidence_ids: ["E1"] },
+        { origin: "B.Z.'s own reporting", evidence_ids: ["E2"] },
+      ],
+    },
+    verdicts: { luna: [verdict, verdict] },
+  };
+})();
+
+/** The traffic-light photo on its own, no text anywhere: a Photo check and no Claim. */
+export const PHOTO_ONLY: Scenario = {
+  ...TRAFFIC_LIGHT_PHOTO,
+  understand: {
+    image_text: null,
+    image_description: "A traffic light drooping and melted on a street pole.",
+    main_claim: null,
+  },
+};
+
+const SCREENSHOT_TEXT = "BREAKING: RBI is banning ₹500 notes from 1 January. Forward to all!";
+
+/** A screenshot of the ₹500 forward, no typed text: the Claim comes from the text in the image. */
+export const SCREENSHOT: Scenario = {
+  ...RBI_500,
+  understand: {
+    image_text: SCREENSHOT_TEXT,
+    image_description: "A screenshot of a WhatsApp forward with a red BREAKING banner.",
+    main_claim: {
+      original: SCREENSHOT_TEXT,
+      canonical_en: "The Reserve Bank of India is withdrawing ₹500 notes from 1 January.",
+      claim_type: "money_banking",
+    },
+  },
+  reverseImage: [],
+  aiGenerated: null,
+};
+
+/** The dev server's replay answers, by the Message typed. A photo sent with no text gets PHOTO_ONLY. */
+export const DEMO_SCENARIOS: Record<string, Scenario> = {
+  ...Object.fromEntries(
+    [BACHCHAN, RBI_500, LAPTOP, WITHDRAWN_2000, HOSPITAL, RETIRED, TRAFFIC_LIGHTS].map((s) => [
+      s.understand!.main_claim!.original,
+      s,
+    ]),
+  ),
+  "": PHOTO_ONLY,
+};

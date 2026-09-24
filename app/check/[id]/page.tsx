@@ -1,6 +1,6 @@
 import { StepStatusIcon } from "@/components/step-status-icon";
 import { getResult } from "@/lib/engine/boundary.ts";
-import type { Confidence, Evidence, ReasoningStep, Result, Tier, VerdictLabel } from "@/lib/engine/schemas.ts";
+import type { Confidence, Evidence, PhotoCheck, ReasoningStep, Result, Tier, Verdict, VerdictLabel } from "@/lib/engine/schemas.ts";
 import { isFactChecker, tierOf } from "@/lib/engine/sources.ts";
 
 const LABEL_TEXT: Record<VerdictLabel, string> = {
@@ -29,11 +29,13 @@ const DAY_FORMAT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "sh
 
 /** Saved Results last 30 days, so a proof page can be asked for one saved before a field
  * existed. What's there is shown; what isn't is worked out from the url or left out. */
-type StoredResult = Omit<Result, "verdict" | "evidence" | "independentSources" | "steps"> & {
-  verdict: Pick<Result["verdict"], "label" | "oneLine"> & Partial<Result["verdict"]>;
+type StoredResult = Omit<Result, "message" | "verdict" | "evidence" | "independentSources" | "steps" | "photoCheck"> & {
+  message: Partial<Result["message"]>;
+  verdict: (Pick<Verdict, "label" | "oneLine"> & Partial<Verdict>) | null;
   evidence?: (Partial<Evidence> & { url: string; quote: string })[];
   independentSources?: number;
   steps?: Result["steps"];
+  photoCheck?: PhotoCheck | null;
 };
 
 /** A stance we don't know is the honest answer for older Evidence: it's shown, just not on a side. */
@@ -72,8 +74,50 @@ const TAG_TEXT: Record<ReasoningStep["tag"], string> = {
   hypothesis: "Hypothesis",
 };
 
+const REAL_TEXT: Record<PhotoCheck["real"], string> = { yes: "Yes", no: "Probably not", unknown: "Can't tell" };
+
+function PhotoCheckCard({ photo }: { photo: PhotoCheck }) {
+  const { exif } = photo;
+  const exifParts = exif && [
+    exif.taken && `taken ${exif.taken.replace("T", " ").slice(0, 16)}`,
+    exif.camera && `with ${exif.camera}`,
+    exif.place && `at ${exif.place.lat.toFixed(4)}, ${exif.place.lon.toFixed(4)}`,
+  ].filter(Boolean);
+  return (
+    <section className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
+      <h2 className="text-sm font-medium text-muted-foreground">Photo check</h2>
+      <p className="text-foreground">
+        <span className="font-semibold">Real photo: {REAL_TEXT[photo.real]}.</span> {photo.reason}
+      </p>
+      {photo.description && <p className="text-sm text-muted-foreground">The photo shows: {photo.description}</p>}
+      <p className="text-sm text-foreground">
+        <span className="font-medium">Earliest copy we found: </span>
+        {photo.earliest ? (
+          <>
+            <a href={photo.earliest.url} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-4">
+              {photo.earliest.site}
+            </a>
+            , {DAY_FORMAT.format(new Date(photo.earliest.date))}
+          </>
+        ) : (
+          "none with a date"
+        )}
+      </p>
+      <p className="text-sm text-foreground">
+        <span className="font-medium">From the photo file: </span>
+        {exifParts?.length ? exifParts.join(", ") : "no details (most apps remove them, so this proves nothing)"}
+      </p>
+      {photo.aiGenerated !== null && (
+        <p className="text-sm text-muted-foreground">
+          An AI detector rates it {Math.round(photo.aiGenerated * 100)}% likely AI-generated. A hint, not proof.
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** Which model decided, in words; a null model means code decided (no Independent source either way). */
-function decidedBy({ verdict, model }: StoredResult): string {
+function decidedBy(model: string | null, verdict: NonNullable<StoredResult["verdict"]>): string {
   if (model === null) return "Decided by rule: no Independent source either way.";
   if (!verdict.escalated) return `Decided by ${model}.`;
   const why = "the quick verdicts disagreed or weren't sure, or Independent sources disagreed";
@@ -144,37 +188,51 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
   const steps = result.steps ?? [];
   const evidence = shownEvidence(result.evidence);
   const unsorted = evidence.filter((e) => e.stance === null);
+  const { verdict, mainClaim, photoCheck } = result;
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-16">
-      <span
-        className={`inline-flex w-fit items-center rounded-full px-4 py-1.5 text-lg font-semibold ${LABEL_CLASS[result.verdict.label]}`}
-      >
-        {LABEL_TEXT[result.verdict.label]}
-      </span>
+      {verdict && (
+        <>
+          <span
+            className={`inline-flex w-fit items-center rounded-full px-4 py-1.5 text-lg font-semibold ${LABEL_CLASS[verdict.label]}`}
+          >
+            {LABEL_TEXT[verdict.label]}
+          </span>
 
-      <p className="text-lg text-foreground">{result.verdict.oneLine}</p>
+          <p className="text-lg text-foreground">{verdict.oneLine}</p>
 
-      {/* Results saved before issue #8 have no Confidence. */}
-      {result.verdict.confidence && (
-        <p className="text-sm text-foreground">
-          <span className="font-medium">{CONFIDENCE_TEXT[result.verdict.confidence.level]} confidence</span>
-          <span className="text-muted-foreground"> · {result.verdict.confidence.reason}</span>
+          {/* Results saved before issue #8 have no Confidence. */}
+          {verdict.confidence && (
+            <p className="text-sm text-foreground">
+              <span className="font-medium">{CONFIDENCE_TEXT[verdict.confidence.level]} confidence</span>
+              <span className="text-muted-foreground"> · {verdict.confidence.reason}</span>
+            </p>
+          )}
+        </>
+      )}
+
+      {/* Independent of the Verdict: a real photo can carry a False Claim. */}
+      {photoCheck && <PhotoCheckCard photo={photoCheck} />}
+
+      {mainClaim ? (
+        <section className="rounded-lg border border-border bg-card p-4">
+          <h2 className="text-sm font-medium text-muted-foreground">Main claim</h2>
+          <p className="mt-1 text-foreground">{mainClaim.original}</p>
+        </section>
+      ) : (
+        <p className="text-foreground">
+          There&apos;s no text to check with this photo. Paste the message that came with it to check its story too.
         </p>
       )}
 
-      <section className="rounded-lg border border-border bg-card p-4">
-        <h2 className="text-sm font-medium text-muted-foreground">Main claim</h2>
-        <p className="mt-1 text-foreground">{result.mainClaim.original}</p>
-      </section>
-
       {/* Results saved before issue #7 have no reasoning, and their `model` wasn't the deciding one. */}
-      {result.verdict.reasoning && (
+      {verdict?.reasoning && (
         <section className="flex flex-col gap-3">
           <h2 className="text-sm font-medium text-muted-foreground">Why</h2>
-          {result.verdict.reasoning.length > 0 && (
+          {verdict.reasoning.length > 0 && (
             <ol className="flex flex-col gap-2">
-              {result.verdict.reasoning.map((step, i) => (
+              {verdict.reasoning.map((step, i) => (
                 <li key={i} className="text-sm text-foreground">
                   <span className="mr-2 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
                     {TAG_TEXT[step.tag]}
@@ -198,30 +256,32 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
               ))}
             </ol>
           )}
-          {result.verdict.whatWouldChange && (
+          {verdict.whatWouldChange && (
             <p className="text-sm text-foreground">
               <span className="font-medium">What would change this: </span>
-              {result.verdict.whatWouldChange}
+              {verdict.whatWouldChange}
             </p>
           )}
-          <p className="text-xs text-muted-foreground">{decidedBy(result)}</p>
+          <p className="text-xs text-muted-foreground">{decidedBy(result.model, verdict)}</p>
         </section>
       )}
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium text-muted-foreground">Evidence</h2>
-        {result.independentSources !== undefined && (
-          <p className="text-sm text-foreground">
-            {result.independentSources === 1 ? "1 Independent source" : `${result.independentSources} Independent sources`}
-            <span className="text-muted-foreground"> (sites repeating one report count once)</span>
-          </p>
-        )}
-        <div className="grid gap-6 sm:grid-cols-2">
-          <EvidenceColumn title="For the claim" items={evidence.filter((e) => e.stance === "supports")} />
-          <EvidenceColumn title="Against the claim" items={evidence.filter((e) => e.stance === "contradicts")} />
-        </div>
-        {unsorted.length > 0 && <EvidenceColumn title="Other evidence" items={unsorted} />}
-      </section>
+      {verdict && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-sm font-medium text-muted-foreground">Evidence</h2>
+          {result.independentSources !== undefined && (
+            <p className="text-sm text-foreground">
+              {result.independentSources === 1 ? "1 Independent source" : `${result.independentSources} Independent sources`}
+              <span className="text-muted-foreground"> (sites repeating one report count once)</span>
+            </p>
+          )}
+          <div className="grid gap-6 sm:grid-cols-2">
+            <EvidenceColumn title="For the claim" items={evidence.filter((e) => e.stance === "supports")} />
+            <EvidenceColumn title="Against the claim" items={evidence.filter((e) => e.stance === "contradicts")} />
+          </div>
+          {unsorted.length > 0 && <EvidenceColumn title="Other evidence" items={unsorted} />}
+        </section>
+      )}
 
       {steps.length > 0 && (
         <section className="flex flex-col gap-3">

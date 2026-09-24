@@ -6,6 +6,13 @@ import { z } from "zod";
  * Redis) into the browser bundle. */
 export const MAX_MESSAGE_LENGTH = 2000;
 
+/** One photo per Message, as sent (the input page resizes it to about 1600px first). */
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+export type ImageType = (typeof IMAGE_TYPES)[number];
+export const NOT_AN_IMAGE = "That file isn't a photo we can read — please add a PNG, JPEG or WEBP image.";
+export const PHOTO_TOO_BIG = "That photo is over 5 MB — please add a smaller one.";
+
 /** CONTEXT.md: True, False, Misleading, Outdated, Not confirmed yet.
  * Outdated needs Claim date handling (issue #9) and isn't produced yet. */
 export const VERDICT_LABELS = ["true", "false", "misleading", "unconfirmed"] as const;
@@ -27,13 +34,20 @@ export type ClaimType = (typeof CLAIM_TYPES)[number];
 
 /** Structured output of the Understand step (one call, luna). */
 export const UnderstandSchema = z.object({
-  main_claim: z.object({
-    /** The claim as written in the Message. */
-    original: z.string(),
-    /** A canonical English sentence, for searching and caching. */
-    canonical_en: z.string(),
-    claim_type: z.enum(CLAIM_TYPES),
-  }),
+  /** Text read from the photo or screenshot; null with no photo or no text in it. */
+  image_text: z.string().nullable(),
+  /** What the photo shows, in a sentence; null with no photo. */
+  image_description: z.string().nullable(),
+  /** Null when there's nothing to check, e.g. a photo with no text anywhere. */
+  main_claim: z
+    .object({
+      /** The claim as written in the Message. */
+      original: z.string(),
+      /** A canonical English sentence, for searching and caching. */
+      canonical_en: z.string(),
+      claim_type: z.enum(CLAIM_TYPES),
+    })
+    .nullable(),
 });
 export type Understood = z.infer<typeof UnderstandSchema>;
 
@@ -117,34 +131,81 @@ export interface ReasoningStep {
   evidenceIds: string[];
 }
 
+/** What the photo file says about itself, read on the phone before the photo is resized (resizing
+ * drops it). Supporting clues only: most apps strip it, so its absence proves nothing. */
+export const ExifSchema = z.object({
+  /** When the photo was taken, as the camera wrote it (local time, no zone). */
+  taken: z.string().max(40).nullable(),
+  camera: z.string().max(100).nullable(),
+  place: z.object({ lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180) }).nullable(),
+});
+export type Exif = z.infer<typeof ExifSchema>;
+
+/** The photo in a Message. */
+export interface MessageImage {
+  bytes: Uint8Array;
+  exif?: Exif | null;
+}
+
+/** A page where reverse image search found the same photo. */
+export interface ImageMatch {
+  url: string;
+  title: string;
+  source: string;
+}
+
+/** CONTEXT.md "Photo check": is the photo real, and where and when did it first appear? Decided by
+ * code, separately from the Verdict, and never a bare "fake". */
+export interface PhotoCheck {
+  real: "yes" | "no" | "unknown";
+  /** Why, in words. */
+  reason: string;
+  /** Earliest dated copy we found; "we found", never "the original". */
+  earliest: { url: string; site: string; date: string } | null;
+  /** Pages found carrying the same photo; null when the search didn't work. */
+  matches: number | null;
+  exif: Exif | null;
+  /** 0–1 "AI-generated" score from Sightengine: a hint, never decisive alone. Null if not asked. */
+  aiGenerated: number | null;
+  /** What the photo shows, from Understand. */
+  description: string | null;
+}
+
 /** A saved Check outcome, rendered by the proof page. docs/architecture.md §"Result shape". */
 export interface Result {
   id: string;
   createdAt: string;
   /** The model that decided the Verdict; null when code decided it (no Independent source). */
   model: string | null;
-  message: { text: string };
-  mainClaim: { original: string; canonicalEn: string };
-  verdict: {
-    label: VerdictLabel;
-    oneLine: string;
-    reasoning: ReasoningStep[];
-    whatWouldChange: string;
-    /** A Hard claim: the luna Verdicts disagreed or weren't sure, or Independent sources disagreed, so sol decided. */
-    escalated: boolean;
-    /** Worked out by code from the Evidence (confidence.ts). */
-    confidence: Confidence;
-  };
+  message: { text: string; imageText: string | null };
+  /** Null when the Message has nothing to check (a photo with no text): only the Photo check. */
+  mainClaim: { original: string; canonicalEn: string } | null;
+  /** Null when there's no Claim to judge. */
+  verdict: Verdict | null;
+  /** Only for a Message with a photo. */
+  photoCheck: PhotoCheck | null;
   evidence: Evidence[];
   /** Distinct Origins among the Evidence (CONTEXT.md "Independent source"). */
   independentSources: number;
-  /** The agent's steps as the user last saw them live. */
+  /** The Photo check's and the agent's steps as the user last saw them live. */
   steps: AgentStep[];
 }
 
-/** One agent tool call, as a line in the live step list and on the proof page. */
+/** The Main claim's Verdict, as saved. */
+export interface Verdict {
+  label: VerdictLabel;
+  oneLine: string;
+  reasoning: ReasoningStep[];
+  whatWouldChange: string;
+  /** A Hard claim: the luna Verdicts disagreed or weren't sure, or Independent sources disagreed, so sol decided. */
+  escalated: boolean;
+  /** Worked out by code from the Evidence (confidence.ts). */
+  confidence: Confidence;
+}
+
+/** One tool call, as a line in the live step list and on the proof page. */
 export interface AgentStep {
-  tool: "web_search" | "read_page";
+  tool: "web_search" | "read_page" | "reverse_image";
   /** Plain language, e.g. "Reading ndtv.com…". */
   line: string;
   status: "running" | "done" | "failed";
@@ -152,7 +213,8 @@ export interface AgentStep {
 
 /** Step events streamed from the Check endpoint. `cache` is added by issue #12. */
 export type CheckEvent =
-  | { type: "understood"; claim: { original: string; canonicalEn: string } }
+  /** `claim` is null when there's nothing to check, e.g. a photo with no text. */
+  | { type: "understood"; claim: { original: string; canonicalEn: string } | null }
   | ({ type: "step"; id: string } & AgentStep)
   | { type: "evidence"; id: string; site: string; stance: Evidence["stance"] }
   | { type: "verdict"; label: VerdictLabel; oneLine: string; escalated: boolean }
