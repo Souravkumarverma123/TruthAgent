@@ -1,6 +1,6 @@
 // The Photo check (CONTEXT.md): is the photo real, and where and when did it first appear?
-// Reverse image search is the main signal, dated by reading the top matches; EXIF and the
-// "AI-generated" score only support it. Decided by code, apart from the Verdict.
+// Reverse image search is the main signal, dated by reading the top matches; EXIF only supports
+// it. Decided by code, apart from the Verdict.
 import { tolerate, type World } from "./boundary.ts";
 import type { AgentStep, CheckEvent, Exif, ImageMatch, MessageImage, PhotoCheck } from "./schemas.ts";
 import { isBlocked } from "./sources.ts";
@@ -11,9 +11,6 @@ import { readPage } from "./tools.ts";
  * "earliest copy we found" is often a reshare. */
 const DATED_MATCHES = 3;
 const SEARCH_MS = 15_000;
-/** At or above this, the detector's score keeps a photo with earlier copies at "can't tell". It never
- * says "no" alone: detectors miss new generators, and forwarding recompresses the pixels they read. */
-const MAYBE_AI = 0.5;
 
 const DAY_FORMAT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
@@ -37,16 +34,12 @@ function pagesText(count: number): string {
 function judge(
   matches: number | null,
   earliest: PhotoCheck["earliest"],
-  ai: number | null,
   claimDate: string,
 ): Pick<PhotoCheck, "real" | "reason"> {
   if (matches === null) return { real: "unknown", reason: "The photo search didn't work, so we can't tell where it came from." };
   if (matches === 0) return { real: "unknown", reason: "We found no other copy of this photo, so we can't tell where it came from." };
   if (!earliest || earliest.date >= claimDate) {
     return { real: "unknown", reason: `The photo appears on ${pagesText(matches)}, but none dated earlier, so we can't tell where it came from.` };
-  }
-  if (ai !== null && ai >= MAYBE_AI) {
-    return { real: "unknown", reason: `Earlier copies exist, but an AI detector rates it ${Math.round(ai * 100)}% likely AI-generated.` };
   }
   return { real: "yes", reason: `The same photo was published earlier, on ${pagesText(matches)}, so it wasn't made for this story.` };
 }
@@ -66,11 +59,7 @@ export async function* photoCheck(
   }
 
   yield step("p1", "Finding where this photo appeared before…", "running");
-  const signal = AbortSignal.timeout(SEARCH_MS);
-  const [matches, aiGenerated] = await Promise.all([
-    world.reverseImage(image.bytes, signal).catch(tolerate(() => null)),
-    world.aiGenerated(image.bytes, signal).catch(tolerate(() => null)),
-  ]);
+  const matches = await world.reverseImage(image.bytes, AbortSignal.timeout(SEARCH_MS)).catch(tolerate(() => null));
   if (matches === null) {
     yield step("p1", "Couldn't search for this photo", "failed");
   } else {
@@ -88,7 +77,7 @@ export async function* photoCheck(
 
   const exif: Exif | null = image.exif ?? null;
   return {
-    photoCheck: { ...judge(matches?.length ?? null, earliest, aiGenerated, claimDate), earliest, matches: matches?.length ?? null, exif, aiGenerated, description },
+    photoCheck: { ...judge(matches?.length ?? null, earliest, claimDate), earliest, matches: matches?.length ?? null, exif, description },
     steps: [...steps.values()],
   };
 }

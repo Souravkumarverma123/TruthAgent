@@ -73,12 +73,12 @@ One page, one box, one button, designed for a phone first.
      site's trust tier, the date, and its Origin;
    - **What TruthAgent did**: the agent's steps as they were shown live.
 
-**Photo check** (in review, [PR #29](https://github.com/Souravkumarverma123/TruthAgent/pull/29)):
-add a photo or screenshot as well as, or instead of, text. The text in a screenshot is read and
-checked. A separate **Photo check** says whether the photo is real, where and when it first
-appeared, what the photo file says about itself (date, camera, place), and an optional
-"AI-generated" hint. It is never a bare "FAKE", and it's kept apart from the Verdict, because
-**a real photo can carry a false story**.
+**Photos and screenshots:** add a photo or screenshot as well as, or instead of, text. The text
+in a screenshot is read and checked. A separate **Photo check** says whether the photo is real,
+where and when it first appeared, and what the photo file says about itself (date, camera,
+place). It is never a bare "FAKE", and it's kept apart from the Verdict, because **a real photo
+can carry a false story**. A photo with no text gets a Photo check and a nudge to paste the
+message that came with it.
 
 ## The answers it gives
 
@@ -105,7 +105,7 @@ page, the API route, and the checking pipeline (the **Engine**). There is no sep
 flowchart TD
     A["Phone browser"] -->|"POST /api/check, streamed back as SSE"| B["Understand: find the Main claim"]
     B --> P{"Photo?"}
-    P -->|yes| PC["Photo check (PR #29): reverse image search, EXIF, AI hint"]
+    P -->|yes| PC["Photo check: reverse image search, EXIF"]
     P -->|no| C
     PC --> C["Agent loop: the model picks its own tools"]
     C --> D["Evidence: code checks quotes, tiers, Origins"]
@@ -188,16 +188,17 @@ High ≥ 0.75 · Medium ≥ 0.50 · otherwise Low
 
 The weights are a first guess. They get tuned once, against the accuracy test set (#15).
 
-### 6. Photo check (in review, PR #29)
+### 6. Photo check
 
 - **Reverse image search** with SerpApi Google Lens (exact matches). The top matches are dated
   with `read_page`, and the earliest dated copy wins. It's worded *"earliest copy we found"*,
   never "the original".
 - **EXIF** (date, camera, GPS) is read in the browser *before* the photo is resized, because
   resizing strips it.
-- A **Sightengine** "AI-generated" score is a hint only.
 - **Real = yes** only when a copy is dated before the Claim date. A viral fake gets copied too,
-  so copies alone prove nothing. The AI score alone never decides.
+  so copies alone prove nothing. Nothing here proves a photo was edited, so it never says "no".
+- **No AI-generated detector.** One only gives a probability, which can't settle whether a photo
+  is real, so it was dropped.
 
 ### 7. Save
 
@@ -228,7 +229,7 @@ link, so it can be shared back into the group.
 | Schemas | Zod, used for the model's structured output |
 | Progress | Server-sent events over a POST `fetch` stream |
 | Storage | Upstash Redis (Results, and later cache, lock and rate limits) |
-| Photos | SerpApi Google Lens (reverse image search), `exifr` (EXIF), `sharp` (re-encoding), Sightengine (optional) |
+| Photos | SerpApi Google Lens (reverse image search), `exifr` (EXIF), `sharp` (re-encoding) |
 | Deploy | Vercel |
 
 No agent framework: the loop is about 50 lines, and LangChain-style frameworks add debugging
@@ -274,8 +275,7 @@ cp .env.example .env.local
 | `OPENAI_API_KEY` | Every model call and web search | Required for live mode |
 | `GOOGLE_API_KEY` | Google Fact Check Tools | Free, works without billing |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Saving Results | Upstash free tier |
-| `SERPAPI_API_KEY` | Reverse image search | Photo check (PR #29); free plan, 250 searches a month |
-| `SIGHTENGINE_USER`, `SIGHTENGINE_SECRET` | "AI-generated" hint | Optional |
+| `SERPAPI_API_KEY` | Reverse image search for the Photo check | Free plan, 250 searches a month; one per photo |
 | `OUTSIDE_WORLD_MODE` | `live` to make real calls | Anything else, or unset, means replay |
 
 Keys stay on the server. Never prefix them with `NEXT_PUBLIC_`, and never commit them;
@@ -293,7 +293,7 @@ Keys stay on the server. Never prefix them with `NEXT_PUBLIC_`, and never commit
 
 ## Replay and live modes
 
-Every outside call (OpenAI, SerpApi, Sightengine, page fetches, Wayback, Redis) goes through one
+Every outside call (OpenAI, SerpApi, page fetches, Wayback, Redis) goes through one
 **outside-world boundary**, a `World` in [`lib/engine/boundary.ts`](lib/engine/boundary.ts),
 which has two adapters:
 
@@ -326,6 +326,8 @@ Paste one of these on the input page in dev (the Scenarios live in
 | `Government is giving free laptops to all students, register today` | Only a Fact-check found, so **Not confirmed yet** by rule. |
 | `Amitabh Bachchan admitted to hospital in critical condition, pray for him` | A Hard claim that even `sol` can't settle, so **Not confirmed yet**. |
 | `Amitabh Bachchan has retired from films, forward this` | A malformed probability isn't trusted, so it escalates. |
+| `Europe heatwave: it's so hot the traffic lights are melting! Forward to all`, **with any photo** | Photo check says **real** (earliest copy: Berlin, June 2025), the Verdict says **False**: fire, not heat. |
+| Any photo with **no text** | A Photo check, no Claim, and a nudge to paste the message that came with it. |
 
 Anything else has no Scenario, and replay says so.
 
@@ -386,7 +388,7 @@ The full spec is [#1](https://github.com/Souravkumarverma123/TruthAgent/issues/1
 | ✅ | #7 Verdict rigour: tagged reasoning, id guard, `sol` for Hard claims | Done |
 | ✅ | #8 Confidence by code and the Not confirmed yet rule | Done |
 | ✅ | #25 Replay by Scenario | Done |
-| 🔍 | #11 Photo check: upload, reverse image search, EXIF (P0) | In review, [PR #29](https://github.com/Souravkumarverma123/TruthAgent/pull/29) |
+| ✅ | #11 Photo check: upload, reverse image search, EXIF (P0) | Done |
 | ⏳ | #13 Rate limits and demo pass (P0) | Open |
 | ⏳ | #6 Already fact-checked box, with same-event and outdated guards (P1) | Open |
 | ⏳ | #9 Claim date and Outdated Verdicts (P1) | Open |
@@ -398,7 +400,7 @@ The full spec is [#1](https://github.com/Souravkumarverma123/TruthAgent/issues/1
 | ⏳ | #16 Origin trace: earliest copy we found (P2) | Open |
 | 👤 | #2 First-hour unknowns with real keys; #17 demo rehearsal | For a human |
 
-**Cut order** if time runs short: Origin trace → Sightengine → Hindi → reworded-Claim cache →
+**Cut order** if time runs short: Origin trace → Hindi → reworded-Claim cache →
 `sol` escalation. **Never cut:** Verdict with citations, live steps, reverse image search,
 Confidence, and For vs Against.
 
