@@ -21,7 +21,7 @@ An autonomous agent whose trust work is done by code, not the model: quotes are 
 
 ## Operating Context
 
-- Two surfaces: the input page (`/`: one box, one button, optional photo, live step list streamed as the agent works) and the proof page (`/check/<id>`: public, no login).
+- Three surfaces: the landing page (`/`), the input page (`/check`: one box, optional photo, live step list streamed as the agent works) and the proof page (`/check/<id>`: public, no login).
 - The demo runs in replay mode on fixed Scenarios (see README "Demo Messages in replay"); the live steps appear quickly, the proof page is the moment judges study.
 - Results live 30 days; a proof page shows "Checked X ago" and a Re-check button (not for photo Checks).
 
