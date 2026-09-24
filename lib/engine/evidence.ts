@@ -5,7 +5,6 @@
 import type OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { tolerate, type World } from "./boundary.ts";
-import { originsBySide } from "./confidence.ts";
 import { MODELS } from "./models.ts";
 import { OriginsSchema, type CheckEvent, type Evidence, type EvidenceCandidate, type OriginsOutput } from "./schemas.ts";
 import { isBlocked, isFactChecker, tierOf } from "./sources.ts";
@@ -89,7 +88,7 @@ export async function* processEvidence(
   candidates: EvidenceCandidate[],
   pagesRead: Map<string, PageRead>,
   world: World,
-): AsyncGenerator<CheckEvent, { evidence: Evidence[]; independentSources: number }> {
+): AsyncGenerator<CheckEvent, Evidence[]> {
   // Pages the agent didn't read are fetched now, a few at a time.
   const reads = new Map<string, Promise<PageRead>>();
   const readSlot = limiter(MAX_PARALLEL_READS);
@@ -136,7 +135,7 @@ export async function* processEvidence(
     pageStart.set(item.id, page?.text.slice(0, ORIGIN_CONTEXT_CHARS) ?? "");
     yield { type: "evidence", id: item.id, site: item.site, stance: item.stance };
   }
-  if (accepted.length === 0) return { evidence: [], independentSources: 0 };
+  if (accepted.length === 0) return [];
 
   // Tagging failing leaves Origins unknown (0 Independent sources, so "Not confirmed yet"), not the Check broken.
   const tagged = await world
@@ -159,6 +158,5 @@ export async function* processEvidence(
   }
   // ponytail: an item the tagger leaves out gets no Origin and isn't counted, erring towards
   // "Not confirmed yet"; count each as its own Origin if that under-counts in the accuracy run.
-  const evidence = accepted.map((e) => ({ ...e, origin: originById.get(e.id) ?? null }));
-  return { evidence, independentSources: originsBySide(evidence).total };
+  return accepted.map((e) => ({ ...e, origin: originById.get(e.id) ?? null }));
 }

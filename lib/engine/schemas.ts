@@ -173,8 +173,6 @@ export interface PhotoCheck {
 export interface Result {
   id: string;
   createdAt: string;
-  /** The model that decided the Verdict; null when code decided it (no Independent source). */
-  model: string | null;
   message: { text: string; imageText: string | null };
   /** Null when the Message has nothing to check (a photo with no text): only the Photo check. */
   mainClaim: { original: string; canonicalEn: string } | null;
@@ -183,11 +181,13 @@ export interface Result {
   /** Only for a Message with a photo. */
   photoCheck: PhotoCheck | null;
   evidence: Evidence[];
-  /** Distinct Origins among the Evidence (CONTEXT.md "Independent source"). */
-  independentSources: number;
   /** The Photo check's and the agent's steps as the user last saw them live. */
   steps: AgentStep[];
 }
+
+/** Why a Claim was Hard (CONTEXT.md "Hard claim"): the two luna Verdicts disagreed, one was under 70%
+ * sure, or Independent sources disagree. */
+export type HardClaimTrigger = "luna_disagreed" | "unsure" | "sources_disagree";
 
 /** The Main claim's Verdict, as saved. */
 export interface Verdict {
@@ -195,8 +195,10 @@ export interface Verdict {
   oneLine: string;
   reasoning: ReasoningStep[];
   whatWouldChange: string;
-  /** A Hard claim: the luna Verdicts disagreed or weren't sure, or Independent sources disagreed, so sol decided. */
-  escalated: boolean;
+  /** The model that decided it; null when code decided (no Independent source either way). */
+  model: string | null;
+  /** The Hard-claim trigger that fired, so sol decided; null for an easy claim. */
+  trigger: HardClaimTrigger | null;
   /** Worked out by code from the Evidence (confidence.ts). */
   confidence: Confidence;
 }
@@ -215,6 +217,7 @@ export type CheckEvent =
   | { type: "understood"; claim: { original: string; canonicalEn: string } | null }
   | ({ type: "step"; id: string } & AgentStep)
   | { type: "evidence"; id: string; site: string; stance: Evidence["stance"] }
+  /** `escalated`: a Hard claim, so sol decided. */
   | { type: "verdict"; label: VerdictLabel; oneLine: string; escalated: boolean }
   /** A saved Result answers this Message: the same Message (`exact`) or the same Claim (`claim`). `done` follows. */
   | { type: "cache"; hit: "exact" | "claim"; id: string }

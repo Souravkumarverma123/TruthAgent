@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { replayWorld, type Scenario, type World } from "./boundary.ts";
 import { check, type CheckOptions } from "./check.ts";
+import { independentSources } from "./confidence.ts";
 import * as scenarios from "./scenarios.ts";
 import type { CheckEvent } from "./schemas.ts";
 
@@ -172,15 +173,15 @@ test("replay: 15 sites carrying one ANI line count as 1 Independent source", asy
 
   assert.equal(result.evidence.length, 15);
   assert.equal(new Set(result.evidence.map((e) => e.site)).size, 15);
-  assert.equal(result.independentSources, 1);
+  assert.equal(independentSources(result.evidence), 1);
 });
 
 test("replay: distinct Origins count as distinct Independent sources", async () => {
   const result = await resultOf(await collect(BACHCHAN, scenarios.BACHCHAN));
 
   const origins = new Set(result.evidence.filter((e) => !e.factCheck).map((e) => e.origin));
-  assert.equal(result.independentSources, origins.size);
-  assert.ok(result.independentSources >= 2);
+  assert.equal(independentSources(result.evidence), origins.size);
+  assert.ok(independentSources(result.evidence) >= 2);
 });
 
 const LAPTOP = "Government is giving free laptops to all students, register today";
@@ -193,7 +194,7 @@ test("replay: someone else's Fact-check is shown but is never an Independent sou
     result.evidence.map((e) => ({ site: e.site, factCheck: e.factCheck })),
     [{ site: "boomlive.in", factCheck: true }],
   );
-  assert.equal(result.independentSources, 0);
+  assert.equal(independentSources(result.evidence), 0);
 });
 
 test("replay: with no Independent source either way the Verdict is Not confirmed yet", async () => {
@@ -274,11 +275,12 @@ const WITHDRAWN = "RBI has withdrawn ₹2000 notes from circulation";
 test("replay: an easy claim never escalates, and a Verdict decided by code names no model", async () => {
   const easy = await collect(WITHDRAWN, scenarios.WITHDRAWN_2000);
   assert.equal(verdictEvent(easy).escalated, false);
-  assert.equal((await resultOf(easy)).model, "gpt-6-luna");
+  assert.equal((await resultOf(easy)).verdict!.model, "gpt-6-luna");
+  assert.equal((await resultOf(easy)).verdict!.trigger, null);
 
   const byCode = await collect(LAPTOP, scenarios.LAPTOP);
   assert.equal(verdictEvent(byCode).escalated, false);
-  assert.equal((await resultOf(byCode)).model, null);
+  assert.equal((await resultOf(byCode)).verdict!.model, null);
 });
 
 test("replay: two disagreeing luna Verdicts trigger one sol Verdict, and the verdict event says it escalated", async () => {
@@ -286,8 +288,9 @@ test("replay: two disagreeing luna Verdicts trigger one sol Verdict, and the ver
 
   assert.equal(verdictEvent(events).escalated, true);
   const result = await resultOf(events);
-  assert.equal(result.model, "gpt-6-sol");
+  assert.equal(result.verdict!.model, "gpt-6-sol");
   assert.equal(result.verdict!.label, "false");
+  assert.equal(result.verdict!.trigger, "luna_disagreed");
 });
 
 test("replay: a top-label probability under 0.7 also escalates, and if sol isn't sure either it's Not confirmed yet", async () => {
@@ -296,8 +299,9 @@ test("replay: a top-label probability under 0.7 also escalates, and if sol isn't
   assert.equal(verdictEvent(events).escalated, true);
   assert.equal(verdictEvent(events).label, "unconfirmed");
   const result = await resultOf(events);
-  assert.equal(result.model, "gpt-6-sol");
+  assert.equal(result.verdict!.model, "gpt-6-sol");
   assert.equal(result.verdict!.label, "unconfirmed");
+  assert.equal(result.verdict!.trigger, "unsure");
 });
 
 test("replay: a Not confirmed yet Verdict doesn't keep the reasoning sol gave for the label it wasn't sure of", async () => {
@@ -313,7 +317,9 @@ test("replay: a luna Verdict with probabilities that don't add up isn't trusted,
   const events = await collect("Amitabh Bachchan has retired from films, forward this", scenarios.RETIRED);
 
   assert.equal(verdictEvent(events).escalated, true);
-  assert.equal((await resultOf(events)).model, "gpt-6-sol");
+  const { verdict } = await resultOf(events);
+  assert.equal(verdict!.model, "gpt-6-sol");
+  assert.equal(verdict!.trigger, "unsure");
 });
 
 test("replay: Independent sources on both sides make it a Hard claim, so sol decides", async () => {
@@ -321,7 +327,9 @@ test("replay: Independent sources on both sides make it a Hard claim, so sol dec
   const events = await collect(BACHCHAN, scenarios.BACHCHAN);
 
   assert.equal(verdictEvent(events).escalated, true);
-  assert.equal((await resultOf(events)).model, "gpt-6-sol");
+  const { verdict } = await resultOf(events);
+  assert.equal(verdict!.model, "gpt-6-sol");
+  assert.equal(verdict!.trigger, "sources_disagree");
 });
 
 test("replay: Confidence is worked out by code from the Evidence and shown with its reason in words", async () => {
