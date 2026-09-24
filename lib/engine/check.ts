@@ -83,7 +83,8 @@ async function limitMessage(world: World, ip: string): Promise<string | null> {
     return `You've run ${IP_LIMIT} new checks this hour, the most one person can. Please try again later.`;
   }
   if ((await world.count("checks:day", 24 * HOUR)) > DAY_LIMIT) {
-    return "We're busy: today's new checks are used up. Try a claim we've already checked, or come back tomorrow.";
+    // #12: once cache hits skip this limit, point people to "a claim we've already checked" too.
+    return "We're busy: today's new checks are used up. Links to checks we've already done still open. Please come back tomorrow.";
   }
   return null;
 }

@@ -468,7 +468,7 @@ test("replay: the 31st new Check of the day site-wide gets a friendly busy error
   const last = await lastEvents(replayWorld(scenarios.SOME_FORWARD), ips);
 
   assert.ok(last.slice(0, 30).every((e) => e.type === "done"));
-  assert.match(errorText(last[30]), /already checked/);
+  assert.match(errorText(last[30]), /new checks are used up/);
 });
 
 test("replay: Checks turned away by one IP's limit don't use up the site-wide day", async () => {
