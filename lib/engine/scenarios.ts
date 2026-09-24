@@ -289,7 +289,6 @@ const TRAFFIC_LIGHT_PHOTO: Scenario = {
     { url: LARENA, title: "Lugagnano, semaforo fuso dall'incendio", source: "L'Arena" },
     { url: BZ_BERLIN, title: "Ampel nach Autobrand geschmolzen", source: "B.Z. Berlin" },
   ],
-  aiGenerated: 0.02,
   pages: {
     [RESHARE]: "<html><body><p>Europe is so hot the traffic lights are melting!</p></body></html>",
     [waybackCdxUrl(RESHARE)]: '[["timestamp"],["20260701120000"]]',
@@ -374,7 +373,6 @@ export const SCREENSHOT: Scenario = {
     },
   },
   reverseImage: [],
-  aiGenerated: null,
 };
 
 /** The dev server's replay answers, by the Message typed. A photo sent with no text gets PHOTO_ONLY. */

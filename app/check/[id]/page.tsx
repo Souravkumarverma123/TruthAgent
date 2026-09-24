@@ -107,11 +107,6 @@ function PhotoCheckCard({ photo }: { photo: PhotoCheck }) {
         <span className="font-medium">From the photo file: </span>
         {exifParts?.length ? exifParts.join(", ") : "no details (most apps remove them, so this proves nothing)"}
       </p>
-      {photo.aiGenerated !== null && (
-        <p className="text-sm text-muted-foreground">
-          An AI detector rates it {Math.round(photo.aiGenerated * 100)}% likely AI-generated. A hint, not proof.
-        </p>
-      )}
     </section>
   );
 }

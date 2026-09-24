@@ -1,4 +1,4 @@
-// The outside-world boundary: every call to OpenAI, SerpApi, Sightengine, Redis or a web page goes through a World.
+// The outside-world boundary: every call to OpenAI, SerpApi, Redis or a web page goes through a World.
 // Two adapters, per AGENTS.md: `liveWorld` (real calls, costs money) and `replayWorld(scenario)`
 // (whole answers from a Scenario, $0, no network). Replay is the default in dev and tests.
 import { Redis } from "@upstash/redis";
@@ -39,8 +39,6 @@ export interface World {
   fetchText(url: string, signal: AbortSignal): Promise<string>;
   /** Pages carrying this exact photo, best match first (SerpApi Google Lens). No dates: those come from reading the pages. */
   reverseImage(image: Uint8Array, signal: AbortSignal): Promise<ImageMatch[]>;
-  /** Sightengine's 0–1 "AI-generated" score; null when no Sightengine key is set. */
-  aiGenerated(image: Uint8Array, signal: AbortSignal): Promise<number | null>;
   saveResult(result: Result): Promise<void>;
   getResult(id: string): Promise<Result | null>;
 }
@@ -60,7 +58,6 @@ export interface Scenario {
   origins?: OriginsOutput;
   /** Reverse image search on the Message's photo. */
   reverseImage?: ImageMatch[];
-  aiGenerated?: number | null;
   verdicts?: { luna?: [VerdictOutput, VerdictOutput]; sol?: VerdictOutput };
 }
 
@@ -123,10 +120,6 @@ export function replayWorld(scenario: Scenario, results: ResultStore = memoryRes
     async reverseImage() {
       if (scenario.reverseImage === undefined) throw new ReplayGap("reverse image search");
       return scenario.reverseImage;
-    },
-    async aiGenerated() {
-      if (scenario.aiGenerated === undefined) throw new ReplayGap("the AI-generated score");
-      return scenario.aiGenerated;
     },
     ...results,
   };
@@ -281,7 +274,7 @@ async function serviceJson(response: Response): Promise<Record<string, unknown>>
 /** SerpApi's Image API upload limit. */
 const MAX_UPLOAD_BYTES = 500 * 1024;
 
-/** What photo services get: small enough for SerpApi's 500 KB upload limit, and re-encoded so the
+/** What SerpApi gets: small enough for SerpApi's 500 KB upload limit, and re-encoded so the
  * file's EXIF (the phone's GPS) isn't passed on. */
 async function outgoingPhoto(image: Uint8Array): Promise<Blob> {
   // Size and quality don't bound the bytes: a detailed photo can pass 500 KB, so step down until it fits.
@@ -314,21 +307,6 @@ async function reverseImageLive(image: Uint8Array, signal: AbortSignal): Promise
   return matches
     .filter((m): m is { link: string; title?: string; source?: string } => typeof m?.link === "string")
     .map((m) => ({ url: m.link, title: String(m.title ?? ""), source: String(m.source ?? "") }));
-}
-
-async function aiGeneratedLive(image: Uint8Array, signal: AbortSignal): Promise<number | null> {
-  const user = process.env.SIGHTENGINE_USER;
-  const secret = process.env.SIGHTENGINE_SECRET;
-  if (!user || !secret) return null;
-  const form = new FormData();
-  form.append("media", await outgoingPhoto(image), "photo.jpg");
-  form.append("models", "genai");
-  form.append("api_user", user);
-  form.append("api_secret", secret);
-  const body = await serviceJson(await fetch("https://api.sightengine.com/1.0/check.json", { method: "POST", body: form, signal }));
-  const score = (body.type as { ai_generated?: unknown } | undefined)?.ai_generated;
-  if (body.status !== "success" || typeof score !== "number") throw new Error("Sightengine gave no score");
-  return score;
 }
 
 const RESULT_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days, per docs/architecture.md §6
@@ -385,7 +363,6 @@ export const liveWorld: World = {
   openai: (_ask, live) => live(client()),
   fetchText: fetchLive,
   reverseImage: reverseImageLive,
-  aiGenerated: aiGeneratedLive,
   ...redisResults,
 };
 

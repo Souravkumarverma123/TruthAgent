@@ -59,7 +59,7 @@ Terms are defined in `CONTEXT.md`.
 5. **Language:** Verdict + one-liner in the user's language, English and Hindi only; both stored
    when the Result is saved.
 6. **Daily cap** counts new Checks only; demo claims pre-warmed; a secret demo-pass cookie skips it.
-7. **Cut order:** origin trace → Sightengine → Hindi → reworded-claim cache → sol escalation.
+7. **Cut order:** origin trace → Sightengine (cut 2026-09-24) → Hindi → reworded-claim cache → sol escalation.
    Never cut: Verdict + citations, live steps, reverse image search, Confidence, For vs Against.
 8. **Independent sources** are counted by Origin, not by website.
 9. **Team:** 5 people, all know full-stack Next.js. Plain Next.js app (ADR 0001). Issues on GitHub.

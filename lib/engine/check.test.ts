@@ -374,7 +374,7 @@ test("replay: a real photo carrying a False story shows 'photo is real' in the P
   assert.equal(result.photoCheck?.real, "yes");
 });
 
-test("replay: the Photo check shows the earliest copy found (link, date), the EXIF details and the AI hint", async () => {
+test("replay: the Photo check shows the earliest copy found (link, date) and the EXIF details", async () => {
   const result = await resultOf(
     await collect(TRAFFIC_LIGHTS, scenarios.TRAFFIC_LIGHTS, { image: { bytes: scenarios.PHOTO, exif: PHONE_EXIF } }),
   );
@@ -385,7 +385,6 @@ test("replay: the Photo check shows the earliest copy found (link, date), the EX
     date: "2025-06-20",
   });
   assert.deepEqual(result.photoCheck?.exif, PHONE_EXIF);
-  assert.equal(result.photoCheck?.aiGenerated, 0.02);
 });
 
 test("replay: the Photo check streams its steps live, before the agent's", async () => {
@@ -442,13 +441,4 @@ test("replay: copies of a photo with none dated before the Claim date don't make
   const events = await collect(TRAFFIC_LIGHTS, scenarios.TRAFFIC_LIGHTS, { image: { bytes: scenarios.PHOTO }, claimDate: "2025-06-01" });
 
   assert.equal((await resultOf(events)).photoCheck?.real, "unknown");
-});
-
-test("replay: a high AI-generated score is a hint, never a 'not real' on its own", async () => {
-  const result = await resultOf(
-    await collect("", { ...scenarios.PHOTO_ONLY, reverseImage: [], aiGenerated: 0.97 }, { image: { bytes: scenarios.PHOTO } }),
-  );
-
-  assert.equal(result.photoCheck?.real, "unknown");
-  assert.equal(result.photoCheck?.aiGenerated, 0.97);
 });

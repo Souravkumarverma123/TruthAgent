@@ -26,8 +26,7 @@ Next.js API route (one serverless function, streams progress back as SSE)
 /check/[id]  shareable proof page (the link people forward back to the group)
 ```
 
-No other servers. External calls: OpenAI, Google Fact Check, SerpApi (Google Lens), Upstash Redis,
-optionally Sightengine.
+No other servers. External calls: OpenAI, Google Fact Check, SerpApi (Google Lens), Upstash Redis.
 
 ## 2. Stack and why
 
@@ -78,7 +77,6 @@ luna. Put IDs in one `MODELS` object so a swap is a one-line change.
 | Google Fact Check Tools | "already fact-checked?" (a lead, never evidence) | free | `GOOGLE_API_KEY` |
 | SerpApi Google Lens (`type=exact_matches`) | reverse image search | 250 searches/month free, no card | `SERPAPI_API_KEY` |
 | Upstash Redis | cache, results, lock, rate limit | free tier | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
-| Sightengine (optional) | "AI-generated?" signal | ~100/day free | `SIGHTENGINE_USER`, `SIGHTENGINE_SECRET` |
 | Wayback CDX | earliest archived copy of a page | free, no key | — |
 
 Keys never reach the browser or git.
@@ -161,16 +159,17 @@ Weights are a guess, tuned against the test set. This function gets one small ru
 Runs in code for any Message with a photo, before the agent loop, streamed as step lines. Not a
 model call, and separate from the Verdict: a real photo can carry a False Claim.
 - **Reverse image search:** the photo is re-encoded (≤1024px JPEG, under SerpApi's 500 KB limit, EXIF
-  dropped; Sightengine gets the same copy), uploaded to SerpApi's Image API (`image_id`, lasts 10 min),
+  dropped), uploaded to SerpApi's Image API (`image_id`, lasts 10 min),
   then searched with `engine=google_lens&type=exact_matches`. Results carry no dates.
 - **Earliest copy:** `read_page` on the top 3 matches in parallel (page date, else earliest Wayback);
   the earliest dated one wins, worded "earliest copy we found".
 - **EXIF** (date, camera, GPS) is read in the browser *before* resizing, since canvas resizing drops it,
   and sent with the photo; the endpoint validates it. Supporting clue only.
-- **Sightengine** `genai` score: a hint, only with `SIGHTENGINE_USER`/`SECRET` set.
+- **No AI-generated detector** (Sightengine dropped 2026-09-24): no key, and a detector only gives
+  a probability, which can't settle whether a photo is real.
 - **Real?** yes = a copy dated before the Claim date (a viral fake is copied too, so copies alone
-  aren't enough) and the AI score under 50% · otherwise unknown. Nothing here proves editing, so
-  code never says "no", and the AI score alone never decides. Never a bare "FAKE".
+  aren't enough) · otherwise unknown. Nothing here proves editing, so code never says "no". Never a
+  bare "FAKE".
 - Google Vision was dropped: it needs billing on the Google Cloud project, which the team isn't paying.
 
 ### ⑨ Origin trace ("Web Intelligence")
@@ -220,7 +219,7 @@ app/page.tsx                 input box + live steps
 app/check/[id]/page.tsx      proof page (shareable)
 app/api/check/route.ts       SSE stream, runs the pipeline
 lib/pipeline.ts              steps ②–⑩
-lib/tools.ts                 fact check, vision, read_page, sightengine
+lib/tools.ts                 fact check, read_page
 lib/schemas.ts               Zod schemas
 lib/sources.ts               domain tiers, block list, authority rule per claim type, TTLs
 lib/cache.ts                 Redis helpers

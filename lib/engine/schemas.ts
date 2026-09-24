@@ -165,8 +165,6 @@ export interface PhotoCheck {
   /** Pages found carrying the same photo; null when the search didn't work. */
   matches: number | null;
   exif: Exif | null;
-  /** 0–1 "AI-generated" score from Sightengine: a hint, never decisive alone. Null if not asked. */
-  aiGenerated: number | null;
   /** What the photo shows, from Understand. */
   description: string | null;
 }
