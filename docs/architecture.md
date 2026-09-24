@@ -138,7 +138,8 @@ what_would_change
 - **Escalation (decided 2026-09-23):** run the verdict twice with `gpt-6-luna` in parallel.
   Escalate to **one** `gpt-6-sol` verdict only when it's a hard claim:
   the two luna runs disagree · or luna's top label probability < 0.7 · or the for/against
-  evidence is mixed (both sides have an independent domain). Easy claims never touch sol.
+  evidence is mixed (both sides have an independent domain), unless both luna runs say Misleading or
+  Outdated, whose meaning has Evidence on both sides (changed 2026-09-24 after the accuracy run). Easy claims never touch sol.
   If sol also can't settle it → `unconfirmed`. The proof page says which model decided.
 - Internally maps to AVeriTeC labels (Supported / Refuted / Conflicting / Not enough evidence);
   **Outdated** = claim was true but the evidence shows it changed after `claim_date`, or old content

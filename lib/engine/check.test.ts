@@ -4,7 +4,7 @@ import { replayWorld, type Scenario, type World } from "./boundary.ts";
 import { check, type CheckOptions } from "./check.ts";
 import { independentSources } from "./confidence.ts";
 import * as scenarios from "./scenarios.ts";
-import type { CheckEvent } from "./schemas.ts";
+import type { CheckEvent, VerdictOutput } from "./schemas.ts";
 
 /** Which world each Check ran in, so its saved Result is read back from the same one. */
 const worlds = new WeakMap<CheckEvent[], World>();
@@ -330,6 +330,26 @@ test("replay: Independent sources on both sides make it a Hard claim, so sol dec
   const { verdict } = await resultOf(events);
   assert.equal(verdict!.model, "gpt-6-sol");
   assert.equal(verdict!.trigger, "sources_disagree");
+});
+
+test("replay: Evidence on both sides doesn't make a sure Misleading or Outdated Verdict Hard, since that's what those labels mean", async () => {
+  for (const label of ["misleading", "outdated"] as const) {
+    const verdict: VerdictOutput = {
+      label,
+      one_line: "Built on something real, but the forward gets it wrong.",
+      reasoning: [],
+      alternatives: [
+        { label, probability: 0.8 },
+        { label: "false", probability: 0.2 },
+      ],
+      what_would_change: "An official notice.",
+    };
+    // The same Evidence as above (a hoax post for, Wikipedia against), and no sol answer to replay.
+    const events = await collect(BACHCHAN, { ...scenarios.BACHCHAN, verdicts: { luna: [verdict, verdict] } });
+
+    assert.equal(verdictEvent(events).label, label);
+    assert.equal(verdictEvent(events).escalated, false);
+  }
 });
 
 test("replay: Confidence is worked out by code from the Evidence and shown with its reason in words", async () => {
