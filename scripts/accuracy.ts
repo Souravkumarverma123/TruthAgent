@@ -65,21 +65,21 @@ async function run(claim: AccuracyClaim): Promise<Outcome & { seconds: number; d
 }
 
 console.log(`Running ${claims.length} live Checks (${CONCURRENCY} at a time), fact-checking sites blocked.\n`);
-const done: Awaited<ReturnType<typeof run>>[] = new Array(claims.length);
+const outcomes: Awaited<ReturnType<typeof run>>[] = new Array(claims.length);
 let next = 0;
 await Promise.all(
   Array.from({ length: Math.min(CONCURRENCY, claims.length) }, async () => {
     while (next < claims.length) {
       const i = next++;
-      done[i] = await run(claims[i]);
+      outcomes[i] = await run(claims[i]);
     }
   }),
 );
 
-const summary = summarize(done);
+const summary = summarize(outcomes);
 const percent = (right: number, total: number) => `${right}/${total} (${Math.round((100 * right) / total)}%)`;
 console.log("\nWrong or missing:");
-for (const o of done.filter((o) => o.got !== o.claim.expected)) {
+for (const o of outcomes.filter((o) => o.got !== o.claim.expected)) {
   console.log(`  ${o.claim.id}: expected ${o.claim.expected}, got ${o.got}; ${o.detail}`);
 }
 console.log("\nRight per expected label:");

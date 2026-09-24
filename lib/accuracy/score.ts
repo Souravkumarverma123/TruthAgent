@@ -35,8 +35,10 @@ export interface Summary {
 export function summarize(outcomes: Outcome[]): Summary {
   const byLabel: Summary["byLabel"] = {};
   for (const label of VERDICT_LABELS) {
-    const of = outcomes.filter((o) => o.claim.expected === label);
-    if (of.length) byLabel[label] = { right: of.filter((o) => o.got === label).length, total: of.length };
+    const expectedHere = outcomes.filter((o) => o.claim.expected === label);
+    if (expectedHere.length) {
+      byLabel[label] = { right: expectedHere.filter((o) => o.got === label).length, total: expectedHere.length };
+    }
   }
   const judged = outcomes.filter((o) => o.got !== "error");
   return {

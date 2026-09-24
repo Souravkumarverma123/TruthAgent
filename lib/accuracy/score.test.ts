@@ -5,7 +5,7 @@ import { check } from "../engine/check.ts";
 import { replayWorld } from "../engine/boundary.ts";
 import { BACHCHAN } from "../engine/scenarios.ts";
 import { VERDICT_LABELS } from "../engine/schemas.ts";
-import { BLOCKED_DOMAINS, blockFactCheckers } from "../engine/sources.ts";
+import { blockFactCheckers } from "../engine/sources.ts";
 import { summarize, type AccuracyClaim, type Outcome } from "./score.ts";
 
 const claims: AccuracyClaim[] = JSON.parse(readFileSync(new URL("./claims.json", import.meta.url), "utf-8"));
@@ -40,17 +40,18 @@ test("the summary counts right answers per label and the escalation rate among C
   });
 });
 
-// Last: blocking changes the list for the rest of the process.
-test("with fact-checking sites blocked, their pages never become Evidence, and web_search can take the list", async () => {
-  const site = (events: Awaited<ReturnType<typeof run>>) => events.flatMap((e) => (e.type === "evidence" ? [e.site] : []));
-  const run = async () => {
-    const events = [];
-    for await (const e of check("Amitabh Bachchan has died, forward this to everyone", { world: replayWorld(BACHCHAN) })) events.push(e);
-    return events;
+// Its own file, so its own process: blocking changes the list for the rest of the process. It goes in
+// through check() the way the accuracy run does, and throws if the list outgrows web_search's limit.
+test("with fact-checking sites blocked, their pages never become Evidence", async () => {
+  const evidenceSites = async () => {
+    const sites: string[] = [];
+    for await (const e of check("Amitabh Bachchan has died, forward this to everyone", { world: replayWorld(BACHCHAN) })) {
+      if (e.type === "evidence") sites.push(e.site);
+    }
+    return sites;
   };
 
-  assert.ok(site(await run()).includes("altnews.in"), "Alt News is Evidence in a normal run");
+  assert.ok((await evidenceSites()).includes("altnews.in"), "Alt News is Evidence in a normal run");
   blockFactCheckers();
-  assert.ok(!site(await run()).includes("altnews.in"));
-  assert.ok(BLOCKED_DOMAINS.length <= 20, "web_search allows at most 20 blocked domains");
+  assert.ok(!(await evidenceSites()).includes("altnews.in"));
 });
