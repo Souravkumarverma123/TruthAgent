@@ -307,6 +307,13 @@ which has two adapters:
   reach internal services), redirects are followed by hand and checked at every hop, and page
   size is capped.
 
+In replay the Check endpoint shows each Check over about 4 seconds instead of at once
+([`lib/engine/demo-pace.ts`](lib/engine/demo-pace.ts)), so a demo reads like the agent doing the work.
+Only the endpoint does this; the Engine and its tests stay instant.
+
+**Presenting:** run a production build on the laptop, with no keys and no network:
+`npm run build && npm start` (replay is the default). `npm run dev` compiles on first use, so it stalls the first click.
+
 In dev replay, Results are saved as JSON files under `.data/results/` (git-ignored), so no Redis
 is needed.
 

@@ -588,3 +588,17 @@ test("replay: a Claim date that isn't a real day, or is in the future, gets a fr
     assert.match(errorText(events[0]), /date/);
   }
 });
+
+test("replay: the pages one agent turn reads are read side by side, not one after another", async () => {
+  const world = replayWorld(scenarios.BACHCHAN);
+  const slow = { ...world, fetchText: async (url: string, signal: AbortSignal) => (await new Promise((r) => setTimeout(r, 100)), world.fetchText(url, signal)) };
+  const started = Date.now();
+  const stepEvents = [];
+  for await (const event of check("Amitabh Bachchan has died, forward this to everyone", { world: slow })) {
+    if (event.type === "step" && event.tool === "read_page") stepEvents.push(event);
+  }
+  const reads = new Set(stepEvents.map((s) => s.id)).size;
+  assert.ok(reads >= 2, "the Scenario has an agent turn with several page reads");
+  // 100ms a page (Wayback lookups aside): one after another would be at least reads × 100ms in the agent loop alone.
+  assert.ok(Date.now() - started < reads * 100 + 250, `took ${Date.now() - started}ms for ${reads} reads`);
+});
